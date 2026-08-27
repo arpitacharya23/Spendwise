@@ -1031,7 +1031,7 @@ export default function App() {
               onClick={() => handleOpenAddExpense()}
               id="btn-quick-record-expense"
               className="group flex items-center h-9 px-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow-xs transition-all duration-300 ease-out active:scale-95 cursor-pointer overflow-hidden"
-              title="Record Expense"
+              title="Record"
             >
               <div className="flex items-center justify-center flex-shrink-0">
                 <Plus className="w-4 h-4 transition-transform duration-300 group-hover:rotate-90 flex-shrink-0" />
