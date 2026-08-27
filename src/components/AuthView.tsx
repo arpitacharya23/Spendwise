@@ -1,0 +1,463 @@
+import React, { useState } from 'react';
+import { 
+  Lock, 
+  Mail, 
+  User, 
+  ArrowRight, 
+  Eye, 
+  EyeOff, 
+  Wallet, 
+  AlertCircle, 
+  CheckCircle2, 
+  Loader2
+} from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import { UserProfile } from '../types';
+import { saveSupabaseProfile } from '../lib/supabaseService';
+
+interface AuthViewProps {
+  onAuthSuccess: (profile: UserProfile) => void;
+}
+
+const AVAILABLE_CURRENCIES = [
+  { symbol: '₹', code: 'INR', label: '₹ INR (Indian Rupee)' },
+  { symbol: '$', code: 'USD', label: '$ USD (US Dollar)' },
+  { symbol: '€', code: 'EUR', label: '€ EUR (Euro)' },
+  { symbol: '£', code: 'GBP', label: '£ GBP (British Pound)' },
+  { symbol: 'AED ', code: 'AED', label: 'AED (UAE Dirham)' },
+  { symbol: 'C$', code: 'CAD', label: 'C$ CAD (Canadian Dollar)' },
+  { symbol: 'A$', code: 'AUD', label: 'A$ AUD (Australian Dollar)' },
+  { symbol: '¥', code: 'JPY', label: '¥ JPY (Japanese Yen)' },
+  { symbol: 'S$', code: 'SGD', label: 'S$ SGD (Singapore Dollar)' },
+];
+
+const AVATAR_COLORS = ['#3B82F6', '#10B981', '#8B5CF6', '#EC4899', '#F59E0B', '#06B6D4', '#6366F1'];
+
+export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  
+  // Form fields
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [currency, setCurrency] = useState('₹');
+  const [showPassword, setShowPassword] = useState(false);
+  
+  // Status states
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !password) {
+      setErrorMsg('Please provide both email and password.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // 1. Authenticate with Supabase Auth (verifies email & password strictly)
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password,
+      });
+
+      if (error) {
+        // Strict password & credentials validation: display genuine Supabase Auth error
+        setErrorMsg(error.message || 'Invalid login credentials. Please check your email and password.');
+        return;
+      }
+
+      if (!data?.user) {
+        setErrorMsg('Authentication failed. No user found.');
+        return;
+      }
+
+      const authUser = data.user;
+      const userEmail = authUser.email || cleanEmail;
+
+      // 2. Fetch or initialize user profile in public.profiles table
+      const { data: profileRow } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('email', userEmail)
+        .maybeSingle();
+
+      let profile: UserProfile;
+      if (profileRow) {
+        profile = {
+          name: profileRow.name || userEmail.split('@')[0],
+          email: profileRow.email || userEmail,
+          currency: profileRow.currency || '₹',
+          avatarColor: profileRow.avatar_color || '#3B82F6',
+          monthlyBudget: Number(profileRow.monthly_budget) || 50000,
+        };
+      } else {
+        // If profile row doesn't exist yet, insert into profiles table
+        profile = {
+          name: authUser.user_metadata?.name || userEmail.split('@')[0],
+          email: userEmail,
+          currency: authUser.user_metadata?.currency || '₹',
+          avatarColor: authUser.user_metadata?.avatar_color || '#3B82F6',
+          monthlyBudget: Number(authUser.user_metadata?.monthly_budget) || 50000,
+        };
+        await saveSupabaseProfile(profile, authUser.id);
+      }
+
+      setSuccessMsg('Signed in successfully!');
+      localStorage.setItem('spendwise_auth_user', JSON.stringify(profile));
+      setTimeout(() => onAuthSuccess(profile), 300);
+    } catch (err: any) {
+      console.error('Sign in error:', err);
+      setErrorMsg(err.message || 'An unexpected error occurred during sign in. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
+    const cleanEmail = email.trim().toLowerCase();
+    if (!name.trim()) {
+      setErrorMsg('Please enter your full name.');
+      return;
+    }
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setErrorMsg('Please enter a valid email address.');
+      return;
+    }
+    if (password.length < 6) {
+      setErrorMsg('Password must be at least 6 characters long.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const randomColor = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
+      const budgetNum = 50000;
+
+      // 1. Create account strictly in Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password,
+        options: {
+          data: {
+            name: name.trim(),
+            currency,
+            avatar_color: randomColor,
+            monthly_budget: budgetNum,
+          },
+        },
+      });
+
+      if (authError) {
+        setErrorMsg(authError.message || 'Failed to create account. Please check your details.');
+        return;
+      }
+
+      if (!authData?.user) {
+        setErrorMsg('Failed to register user. Please try again.');
+        return;
+      }
+
+      const newProfile: UserProfile = {
+        name: name.trim(),
+        email: cleanEmail,
+        currency,
+        avatarColor: randomColor,
+        monthlyBudget: budgetNum,
+      };
+
+      // 2. Insert into the public.profiles database table
+      await saveSupabaseProfile(newProfile, authData.user.id);
+
+      // Check if session is already established
+      if (authData.session) {
+        setSuccessMsg('Account created successfully! Logging you in...');
+        localStorage.setItem('spendwise_auth_user', JSON.stringify(newProfile));
+        setTimeout(() => {
+          onAuthSuccess(newProfile);
+        }, 400);
+      } else {
+        // If email confirmation is disabled or enabled, attempt sign in or notify
+        const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password,
+        });
+
+        if (!signInErr && signInData?.user) {
+          setSuccessMsg('Account created successfully! Logging you in...');
+          localStorage.setItem('spendwise_auth_user', JSON.stringify(newProfile));
+          setTimeout(() => {
+            onAuthSuccess(newProfile);
+          }, 400);
+        } else if (signInErr?.message?.toLowerCase().includes('email not confirmed')) {
+          setSuccessMsg('Account created! Please verify your email address to sign in.');
+          setMode('signin');
+        } else {
+          setSuccessMsg('Account created successfully! Please sign in with your credentials.');
+          setMode('signin');
+        }
+      }
+    } catch (err: any) {
+      console.error('Sign up error:', err);
+      setErrorMsg(err.message || 'Failed to create account. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col justify-center items-center p-4 sm:p-6 lg:p-8 selection:bg-blue-600 selection:text-white">
+      {/* Background decorative ambient glows */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
+        <div className="absolute -top-40 -left-40 w-96 h-96 bg-blue-600/15 rounded-full blur-3xl"></div>
+        <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-emerald-600/10 rounded-full blur-3xl"></div>
+      </div>
+
+      <div className="relative z-10 w-full max-w-md">
+        {/* Brand Header */}
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-600 text-white shadow-xl shadow-blue-600/20 mb-3.5">
+            <Wallet className="w-7 h-7" />
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">SpendWise</h1>
+        </div>
+
+        {/* Main Card Container */}
+        <div className="bg-slate-800/90 backdrop-blur-xl border border-slate-700/80 rounded-3xl p-6 sm:p-8 shadow-2xl">
+          {/* Mode Switcher Tabs */}
+          <div className="flex bg-slate-900/90 p-1 rounded-2xl mb-6 border border-slate-700/60">
+            <button
+              type="button"
+              id="tab-signin"
+              onClick={() => {
+                setMode('signin');
+                setErrorMsg(null);
+                setSuccessMsg(null);
+              }}
+              className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-xl transition cursor-pointer ${
+                mode === 'signin'
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              id="tab-signup"
+              onClick={() => {
+                setMode('signup');
+                setErrorMsg(null);
+                setSuccessMsg(null);
+              }}
+              className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-xl transition cursor-pointer ${
+                mode === 'signup'
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Create Account
+            </button>
+          </div>
+
+          {/* Error Banner */}
+          {errorMsg && (
+            <div className="mb-5 p-3 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2.5 animate-fadeIn">
+              <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
+          {/* Success Banner */}
+          {successMsg && (
+            <div className="mb-5 p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-start gap-2.5 animate-fadeIn">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+              <span>{successMsg}</span>
+            </div>
+          )}
+
+          {/* SIGN IN FORM */}
+          {mode === 'signin' ? (
+            <form onSubmit={handleSignIn} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5" htmlFor="signin-email">
+                  Email Address
+                </label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    id="signin-email"
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="name@example.com"
+                    className="w-full bg-slate-900/80 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5" htmlFor="signin-password">
+                  Password
+                </label>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    id="signin-password"
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter your password"
+                    className="w-full bg-slate-900/80 border border-slate-700 rounded-xl pl-10 pr-10 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 p-1"
+                    aria-label="Toggle password visibility"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                id="btn-submit-signin"
+                disabled={loading}
+                className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-bold text-xs sm:text-sm rounded-xl shadow-lg shadow-blue-600/25 transition active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer mt-2"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Signing in...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Sign In</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+            </form>
+          ) : (
+            /* SIGN UP FORM */
+            <form onSubmit={handleSignUp} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5" htmlFor="signup-name">
+                  Full Name
+                </label>
+                <div className="relative">
+                  <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    id="signup-name"
+                    type="text"
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="e.g. Srishti Sharma"
+                    className="w-full bg-slate-900/80 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5" htmlFor="signup-email">
+                  Email Address
+                </label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    id="signup-email"
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="name@example.com"
+                    className="w-full bg-slate-900/80 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5" htmlFor="signup-password">
+                  Password (min. 6 characters)
+                </label>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    id="signup-password"
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    minLength={6}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Create a strong password"
+                    className="w-full bg-slate-900/80 border border-slate-700 rounded-xl pl-10 pr-10 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 p-1"
+                    aria-label="Toggle password visibility"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5" htmlFor="signup-currency">
+                  Preferred Currency
+                </label>
+                <select
+                  id="signup-currency"
+                  value={currency}
+                  onChange={(e) => setCurrency(e.target.value)}
+                  className="w-full bg-slate-900/80 border border-slate-700 rounded-xl px-3 py-2.5 text-xs sm:text-sm text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
+                >
+                  {AVAILABLE_CURRENCIES.map((curr) => (
+                    <option key={curr.code} value={curr.symbol}>
+                      {curr.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <button
+                type="submit"
+                id="btn-submit-signup"
+                disabled={loading}
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800 disabled:cursor-not-allowed text-white font-bold text-xs sm:text-sm rounded-xl shadow-lg shadow-emerald-600/25 transition active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer mt-2"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Creating Account...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Create SpendWise Account</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};

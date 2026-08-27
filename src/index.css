@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+@layer utilities {
+  /* Privacy Masking Styles */
+  .privacy-mode .privacy-value,
+  .privacy-mode .privacy-mask,
+  .privacy-mode [data-privacy-mask="true"] {
+    filter: blur(6px);
+    user-select: none;
+    transition: filter 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Unmask on hover over the card, row, widget or the number itself */
+  .privacy-mode .group:hover .privacy-value,
+  .privacy-mode .group:hover .privacy-mask,
+  .privacy-mode .group:hover [data-privacy-mask="true"],
+  .privacy-mode tr:hover .privacy-value,
+  .privacy-mode tr:hover .privacy-mask,
+  .privacy-mode tr:hover [data-privacy-mask="true"],
+  .privacy-mode li:hover .privacy-value,
+  .privacy-mode li:hover .privacy-mask,
+  .privacy-mode li:hover [data-privacy-mask="true"],
+  .privacy-mode .privacy-value:hover,
+  .privacy-mode .privacy-mask:hover,
+  .privacy-mode [data-privacy-mask="true"]:hover {
+    filter: blur(0px) !important;
+  }
+}
