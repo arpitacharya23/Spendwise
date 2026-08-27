@@ -216,7 +216,14 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col justify-center items-center p-4 sm:p-6 lg:p-8 selection:bg-blue-600 selection:text-white">
+    return (
+  <div
+    className="min-h-screen text-slate-100 flex flex-col justify-center items-center p-4 sm:p-6 lg:p-8 selection:bg-blue-600 selection:text-white bg-cover bg-center bg-no-repeat"
+    style={{
+      backgroundImage:
+        "linear-gradient(rgba(5, 12, 28, 0.60), rgba(5, 12, 28, 0.60)), url('/login-bg.png')",
+    }}
+  >
       {/* Background decorative ambient glows */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
         <div className="absolute -top-40 -left-40 w-96 h-96 bg-blue-600/15 rounded-full blur-3xl"></div>
