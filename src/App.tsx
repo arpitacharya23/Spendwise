@@ -6,7 +6,8 @@ import {
   Plus, 
   ShieldCheck,
   Eye,
-  EyeOff
+  EyeOff,
+  SlidersHorizontal
 } from 'lucide-react';
 import { 
   currentUser, 
@@ -28,8 +29,13 @@ import {
   LoanEMI, 
   SplitMemberShare, 
   Transaction, 
-  UserProfile 
+  UserProfile,
+  TransactionRule,
+  DashboardCardConfig
 } from './types';
+import { initialRules } from './data/initialRules';
+import { initialDashboardCards } from './data/initialDashboardCards';
+import { findMatchingRule, applyRulesToTransactionsList } from './lib/ruleEngine';
 import { Sidebar } from './components/Sidebar';
 import { DashboardView } from './components/DashboardView';
 import { AccountsView } from './components/AccountsView';
@@ -41,9 +47,12 @@ import { TransactionsView } from './components/TransactionsView';
 import { CalendarView } from './components/CalendarView';
 import { CategoriesView } from './components/CategoriesView';
 import { BudgetsView } from './components/BudgetsView';
+import { RulesView } from './components/RulesView';
+import { ManageDashboardModal } from './components/ManageDashboardModal';
 import { AuthView } from './components/AuthView';
 import { AddExpenseModal } from './components/AddExpenseModal';
 import { ProfileModal } from './components/ProfileModal';
+import { NotificationBell } from './components/NotificationBell';
 import { supabase } from './lib/supabase';
 import { 
   getSupabaseProfile, 
@@ -59,12 +68,14 @@ import {
   deleteSupabaseTransaction,
   getSupabaseLoans, 
   saveSupabaseLoan,
+  deleteSupabaseLoan,
   getSupabaseGroups, 
   saveSupabaseGroup,
   getSupabaseActivityLogs, 
   saveSupabaseActivityLog,
   getSupabaseFriends, 
-  saveSupabaseFriend
+  saveSupabaseFriend,
+  deleteSupabaseFriend
 } from './lib/supabaseService';
 
 export default function App() {
@@ -95,6 +106,56 @@ export default function App() {
   const [activityLogs, setActivityLogs] = useState<GroupActivityLog[]>(initialGroupActivityLogs);
   const [friends, setFriends] = useState<Friend[]>(initialFriends);
 
+  // Rule-based engine rules state
+  const [rules, setRules] = useState<TransactionRule[]>(() => {
+    try {
+      const saved = localStorage.getItem('spendwise_rules');
+      return saved ? JSON.parse(saved) : initialRules;
+    } catch {
+      return initialRules;
+    }
+  });
+
+  // Dashboard customizable cards state
+  const [dashboardCards, setDashboardCards] = useState<DashboardCardConfig[]>(() => {
+    try {
+      const saved = localStorage.getItem('spendwise_dashboard_cards');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Filter out legacy quick_actions if present in saved localStorage
+          const filtered = parsed.filter((c: { id: string }) => c.id !== 'quick_actions');
+          if (filtered.length > 0) {
+            return filtered;
+          }
+        }
+      }
+      return initialDashboardCards;
+    } catch {
+      return initialDashboardCards;
+    }
+  });
+
+  // Modal for managing dashboard cards
+  const [isManageDashboardOpen, setIsManageDashboardOpen] = useState(false);
+
+  // Persist rules & dashboard layout to local storage
+  useEffect(() => {
+    try {
+      localStorage.setItem('spendwise_rules', JSON.stringify(rules));
+    } catch (e) {
+      console.warn('Failed to save rules to localStorage', e);
+    }
+  }, [rules]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('spendwise_dashboard_cards', JSON.stringify(dashboardCards));
+    } catch (e) {
+      console.warn('Failed to save dashboard cards to localStorage', e);
+    }
+  }, [dashboardCards]);
+
   // Sync state
   const [isSyncing, setIsSyncing] = useState(false);
   const [isCloudConnected, setIsCloudConnected] = useState<boolean | null>(null);
@@ -103,6 +164,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [isAddExpenseModalOpen, setIsAddExpenseModalOpen] = useState(false);
+  const [isAddAccountModalTriggered, setIsAddAccountModalTriggered] = useState(false);
   const [addExpensePrefillDate, setAddExpensePrefillDate] = useState<string | undefined>(undefined);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
@@ -137,18 +199,19 @@ export default function App() {
         sbTransactions,
         sbLoans,
         sbGroups,
-        sbLogs,
         sbFriends
       ] = await Promise.all([
         getSupabaseProfile(targetEmail),
-        getSupabaseAccounts(),
+        getSupabaseAccounts(targetEmail),
         getSupabaseCategories(),
-        getSupabaseTransactions(),
-        getSupabaseLoans(),
-        getSupabaseGroups(),
-        getSupabaseActivityLogs(),
-        getSupabaseFriends()
+        getSupabaseTransactions(targetEmail),
+        getSupabaseLoans(targetEmail),
+        getSupabaseGroups(targetEmail),
+        getSupabaseFriends(targetEmail)
       ]);
+
+      const userGroupIds = (sbGroups || []).map(g => g.id);
+      const sbLogs = await getSupabaseActivityLogs(userGroupIds);
 
       let connected = false;
 
@@ -157,7 +220,7 @@ export default function App() {
         localStorage.setItem('spendwise_auth_user', JSON.stringify(sbProfile));
         connected = true;
       }
-      if (sbAccounts && sbAccounts.length > 0) {
+      if (sbAccounts !== null) {
         setAccounts(sbAccounts);
         connected = true;
       }
@@ -165,23 +228,35 @@ export default function App() {
         setCategories(sbCategories);
         connected = true;
       }
-      if (sbTransactions && sbTransactions.length > 0) {
-        setTransactions(sbTransactions);
+      if (sbTransactions !== null) {
+        const sortedTxs = [...sbTransactions].sort((a, b) => {
+          const timeA = new Date(a.updatedAt || a.date).getTime() || new Date(a.date).getTime() || 0;
+          const timeB = new Date(b.updatedAt || b.date).getTime() || new Date(b.date).getTime() || 0;
+          if (timeB !== timeA) return timeB - timeA;
+          return (b.id || '').localeCompare(a.id || '');
+        });
+        setTransactions(sortedTxs);
         connected = true;
       }
-      if (sbLoans && sbLoans.length > 0) {
+      if (sbLoans !== null) {
         setLoans(sbLoans);
         connected = true;
       }
-      if (sbGroups && sbGroups.length > 0) {
+      if (sbGroups !== null) {
         setGroups(sbGroups);
         connected = true;
       }
-      if (sbLogs && sbLogs.length > 0) {
-        setActivityLogs(sbLogs);
+      if (sbLogs !== null) {
+        const sortedLogs = [...sbLogs].sort((a, b) => {
+          const timeA = new Date(a.timestamp).getTime() || 0;
+          const timeB = new Date(b.timestamp).getTime() || 0;
+          if (timeB !== timeA) return timeB - timeA;
+          return (b.id || '').localeCompare(a.id || '');
+        });
+        setActivityLogs(sortedLogs);
         connected = true;
       }
-      if (sbFriends && sbFriends.length > 0) {
+      if (sbFriends !== null) {
         setFriends(sbFriends);
         connected = true;
       }
@@ -285,6 +360,12 @@ export default function App() {
     }
     localStorage.removeItem('spendwise_auth_user');
     setUser(null);
+    setAccounts([]);
+    setTransactions([]);
+    setLoans([]);
+    setGroups([]);
+    setFriends([]);
+    setActivityLogs([]);
     setLogoutNotice('Logged out of SpendWise.');
     setTimeout(() => setLogoutNotice(null), 4000);
   };
@@ -326,6 +407,35 @@ export default function App() {
       createdBy: user.email,
       updatedAt: new Date().toISOString(),
     };
+
+    if (newTx.groupId) {
+      const grp = groups.find(g => g.id === newTx.groupId);
+      if (grp) {
+        const perPerson = Math.round((newTx.amount / grp.members.length) * 100) / 100;
+        newTx.splitDetails = grp.members.map((m, idx) => ({
+          memberId: m.id,
+          memberName: m.name,
+          memberEmail: m.email,
+          shareAmount: perPerson,
+          paidAmount: idx === 0 ? newTx.amount : 0,
+          isSelected: true,
+        }));
+        newTx.paidByMemberId = grp.members[0]?.id || 'mem-1';
+
+        const newLog: GroupActivityLog = {
+          id: `log-${Date.now().toString().slice(-6)}`,
+          groupId: newTx.groupId,
+          actionType: 'tx_added',
+          actorName: user.name,
+          actorEmail: user.email,
+          message: `${user.name} added "${newTx.title}" (${user.currency}${newTx.amount.toLocaleString()})`,
+          timestamp: new Date().toISOString(),
+          details: { txId: newTxId, txTitle: newTx.title, amount: newTx.amount, currency: user.currency },
+        };
+        setActivityLogs([newLog, ...activityLogs]);
+        saveSupabaseActivityLog(newLog);
+      }
+    }
 
     setTransactions([newTx, ...transactions]);
     saveSupabaseTransaction(newTx);
@@ -418,32 +528,60 @@ export default function App() {
     }));
 
     const card = accounts.find(a => a.id === cardId);
-    const newTx: Transaction = {
-      id: `tx-${Date.now().toString().slice(-6)}`,
-      date: new Date().toISOString().split('T')[0],
+    const fromBank = accounts.find(a => a.id === fromBankId);
+    const nowIso = new Date().toISOString();
+    const dateStr = nowIso.split('T')[0];
+    const timestamp = Date.now();
+
+    // 1. Debit transaction from bank account
+    const debitTx: Transaction = {
+      id: `tx-${timestamp}-dr`,
+      date: dateStr,
       title: `Bill Payment - ${card?.name || 'Credit Card'}`,
       amount,
       type: 'expense',
       accountId: fromBankId,
+      toAccountId: cardId,
       categoryId: 'cat-7',
-      notes: `Cleared ${user.currency}${amount} credit card due`,
+      notes: `Bill payment of ${user.currency}${amount.toLocaleString()} paid towards ${card?.name || 'Credit Card'}`,
       createdBy: user.email,
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso,
     };
-    setTransactions([newTx, ...transactions]);
-    saveSupabaseTransaction(newTx);
+
+    // 2. Credit transaction on credit card account
+    const creditTx: Transaction = {
+      id: `tx-${timestamp + 1}-cr`,
+      date: dateStr,
+      title: `Payment Received - ${fromBank?.name || 'Bank'}`,
+      amount,
+      type: 'income',
+      accountId: cardId,
+      toAccountId: fromBankId,
+      categoryId: 'cat-7',
+      notes: `Payment of ${user.currency}${amount.toLocaleString()} credited from ${fromBank?.name || 'Bank'}`,
+      createdBy: user.email,
+      updatedAt: nowIso,
+    };
+
+    setTransactions([debitTx, creditTx, ...transactions]);
+    saveSupabaseTransaction(debitTx);
+    saveSupabaseTransaction(creditTx);
   };
 
   // HANDLER: Transfer Funds Between Accounts
   const handleTransferFunds = (fromId: string, toId: string, amount: number, note: string) => {
     setAccounts(accounts.map(acc => {
       if (acc.id === fromId) {
-        const updated = { ...acc, balance: acc.balance - amount };
+        const updated = acc.type === 'credit_card'
+          ? { ...acc, dueAmount: (acc.dueAmount || 0) + amount }
+          : { ...acc, balance: acc.balance - amount };
         saveSupabaseAccount(updated);
         return updated;
       }
       if (acc.id === toId) {
-        const updated = { ...acc, balance: acc.balance + amount };
+        const updated = acc.type === 'credit_card'
+          ? { ...acc, dueAmount: Math.max(0, (acc.dueAmount || 0) - amount) }
+          : { ...acc, balance: acc.balance + amount };
         saveSupabaseAccount(updated);
         return updated;
       }
@@ -454,9 +592,11 @@ export default function App() {
     const toAcc = accounts.find(a => a.id === toId);
     const nowIso = new Date().toISOString();
     const dateStr = nowIso.split('T')[0];
+    const timestamp = Date.now();
 
+    // 1. Debit Transaction (From Source Account)
     const outTx: Transaction = {
-      id: `tx-${Date.now().toString().slice(-6)}-out`,
+      id: `tx-${timestamp}-dr`,
       date: dateStr,
       title: `Transfer to ${toAcc?.name || 'Account'}`,
       amount,
@@ -464,13 +604,14 @@ export default function App() {
       accountId: fromId,
       toAccountId: toId,
       categoryId: 'cat-9',
-      notes: note || `Transfer to ${toAcc?.name}`,
+      notes: note || `Transferred ${user.currency}${amount.toLocaleString()} to ${toAcc?.name || 'Account'}`,
       createdBy: user.email,
       updatedAt: nowIso,
     };
 
+    // 2. Credit Transaction (Into Destination Account)
     const inTx: Transaction = {
-      id: `tx-${Date.now().toString().slice(-6)}-in`,
+      id: `tx-${timestamp + 1}-cr`,
       date: dateStr,
       title: `Transfer from ${fromAcc?.name || 'Account'}`,
       amount,
@@ -478,7 +619,7 @@ export default function App() {
       accountId: toId,
       toAccountId: fromId,
       categoryId: 'cat-9',
-      notes: note || `Transfer from ${fromAcc?.name}`,
+      notes: note || `Received ${user.currency}${amount.toLocaleString()} from ${fromAcc?.name || 'Account'}`,
       createdBy: user.email,
       updatedAt: nowIso,
     };
@@ -524,9 +665,17 @@ export default function App() {
       category: loanData.category || 'Gadgets',
       notes: loanData.notes,
       status: 'active',
+      userEmail: user.email,
+      ownerEmail: user.email,
     };
     setLoans([...loans, newLoan]);
     saveSupabaseLoan(newLoan);
+  };
+
+  // HANDLER: Delete Loan
+  const handleDeleteLoan = (loanId: string) => {
+    setLoans(loans.filter(l => l.id !== loanId));
+    deleteSupabaseLoan(loanId);
   };
 
   // HANDLER: Pay Monthly EMI
@@ -685,15 +834,78 @@ export default function App() {
   // HANDLER: Edit Group Expense
   const handleEditGroupExpense = (
     txId: string,
-    data: { title: string; amount: number; splitDetails: SplitMemberShare[]; notes: string }
+    data: {
+      title: string;
+      amount: number;
+      date?: string;
+      accountId?: string;
+      paidByMemberId?: string;
+      categoryId?: string;
+      splitDetails: SplitMemberShare[];
+      notes: string;
+    }
   ) => {
     const existingTx = transactions.find(t => t.id === txId);
     if (!existingTx) return;
 
-    const updatedTx = {
+    // Account balance adjustment
+    const oldAmount = existingTx.amount;
+    const newAmount = data.amount;
+    const oldAccountId = existingTx.accountId;
+    const newAccountId = data.accountId || existingTx.accountId;
+
+    if (oldAccountId === newAccountId) {
+      const diff = newAmount - oldAmount;
+      if (diff !== 0) {
+        setAccounts(accounts.map(acc => {
+          if (acc.id === oldAccountId) {
+            let updated: Account;
+            if (acc.type === 'credit_card') {
+              updated = { ...acc, dueAmount: (acc.dueAmount || 0) + diff };
+            } else {
+              updated = { ...acc, balance: acc.balance - diff };
+            }
+            saveSupabaseAccount(updated);
+            return updated;
+          }
+          return acc;
+        }));
+      }
+    } else {
+      // Revert old account deduction, apply to new account
+      setAccounts(accounts.map(acc => {
+        if (acc.id === oldAccountId) {
+          let updated: Account;
+          if (acc.type === 'credit_card') {
+            updated = { ...acc, dueAmount: Math.max(0, (acc.dueAmount || 0) - oldAmount) };
+          } else {
+            updated = { ...acc, balance: acc.balance + oldAmount };
+          }
+          saveSupabaseAccount(updated);
+          return updated;
+        }
+        if (acc.id === newAccountId) {
+          let updated: Account;
+          if (acc.type === 'credit_card') {
+            updated = { ...acc, dueAmount: (acc.dueAmount || 0) + newAmount };
+          } else {
+            updated = { ...acc, balance: acc.balance - newAmount };
+          }
+          saveSupabaseAccount(updated);
+          return updated;
+        }
+        return acc;
+      }));
+    }
+
+    const updatedTx: Transaction = {
       ...existingTx,
       title: data.title,
       amount: data.amount,
+      date: data.date || existingTx.date,
+      accountId: newAccountId,
+      paidByMemberId: data.paidByMemberId || existingTx.paidByMemberId,
+      categoryId: data.categoryId || existingTx.categoryId,
       splitDetails: data.splitDetails,
       notes: data.notes,
       updatedAt: new Date().toISOString(),
@@ -711,7 +923,7 @@ export default function App() {
         actorEmail: user.email,
         message: `${user.name} edited "${data.title}" (${user.currency}${data.amount.toLocaleString()})`,
         timestamp: new Date().toISOString(),
-        details: { txId, txTitle: data.title, amount: data.amount },
+        details: { txId, txTitle: data.title, amount: data.amount, currency: user.currency },
       };
       setActivityLogs([newLog, ...activityLogs]);
       saveSupabaseActivityLog(newLog);
@@ -844,7 +1056,7 @@ export default function App() {
       if (f.id === friendId) {
         const adjustment = direction === 'they_paid_me' ? -amount : amount;
         const updated = { ...f, netBalance: f.netBalance + adjustment, lastActivity: new Date().toISOString().split('T')[0] };
-        saveSupabaseFriend(updated);
+        saveSupabaseFriend(updated, user);
         return updated;
       }
       return f;
@@ -879,32 +1091,76 @@ export default function App() {
     saveSupabaseTransaction(newTx);
   };
 
-  // HANDLER: Add Friend
+  // HANDLER: Add Friend (Bidirectional)
   const handleAddFriend = (friendData: Partial<Friend>) => {
     const newFriend: Friend = {
       id: friendData.id || `fr-${Date.now().toString().slice(-6)}`,
       name: friendData.name || 'Friend',
-      email: friendData.email || '',
+      email: (friendData.email || '').trim().toLowerCase(),
       phone: friendData.phone,
       avatarColor: friendData.avatarColor || '#10B981',
       netBalance: friendData.netBalance || 0,
       lastActivity: new Date().toISOString().split('T')[0],
+      userEmail: user.email,
+      ownerEmail: user.email,
     };
     setFriends([...friends, newFriend]);
-    saveSupabaseFriend(newFriend);
+    saveSupabaseFriend(newFriend, user);
     return newFriend;
   };
 
-  // HANDLER: Edit Standalone Transaction
+  // HANDLER: Delete Friend
+  const handleDeleteFriend = (friendId: string) => {
+    const targetFriend = friends.find(f => f.id === friendId);
+    setFriends(friends.filter(f => f.id !== friendId));
+    deleteSupabaseFriend(friendId, user.email, targetFriend?.email);
+  };
+
+  // HANDLER: Edit Standalone / Group Transaction
   const handleEditTransaction = (txId: string, updatedData: Partial<Transaction>) => {
-    setTransactions(transactions.map(t => {
-      if (t.id === txId) {
-        const updated = { ...t, ...updatedData, updatedAt: new Date().toISOString() };
-        saveSupabaseTransaction(updated);
-        return updated;
+    const existingTx = transactions.find(t => t.id === txId);
+    if (!existingTx) return;
+
+    let updatedSplitDetails = updatedData.splitDetails || existingTx.splitDetails;
+
+    // If amount changed for a group expense and splitDetails wasn't explicitly provided, scale shares proportionately
+    if (updatedData.amount !== undefined && updatedData.amount !== existingTx.amount && existingTx.groupId && updatedSplitDetails) {
+      const selectedMembers = updatedSplitDetails.filter(s => s.isSelected);
+      const selectedCount = selectedMembers.length;
+      if (selectedCount > 0) {
+        const perPerson = Math.round((updatedData.amount / selectedCount) * 100) / 100;
+        updatedSplitDetails = updatedSplitDetails.map(s => ({
+          ...s,
+          shareAmount: s.isSelected ? perPerson : 0,
+          paidAmount: s.memberId === (existingTx.paidByMemberId || 'mem-1') ? updatedData.amount! : 0,
+        }));
       }
-      return t;
-    }));
+    }
+
+    const updated: Transaction = {
+      ...existingTx,
+      ...updatedData,
+      splitDetails: updatedSplitDetails,
+      updatedAt: new Date().toISOString(),
+    };
+
+    setTransactions(transactions.map(t => t.id === txId ? updated : t));
+    saveSupabaseTransaction(updated);
+
+    if (existingTx.groupId) {
+      const newLog: GroupActivityLog = {
+        id: `log-${Date.now().toString().slice(-6)}`,
+        groupId: existingTx.groupId,
+        actionType: 'tx_edited',
+        actorName: user.name,
+        actorEmail: user.email,
+        message: `${user.name} edited "${updated.title}" (${user.currency}${updated.amount.toLocaleString()})`,
+        timestamp: new Date().toISOString(),
+        details: { txId, txTitle: updated.title, amount: updated.amount, currency: user.currency },
+      };
+      setActivityLogs([newLog, ...activityLogs]);
+      saveSupabaseActivityLog(newLog);
+    }
   };
 
   // HANDLER: Delete Standalone Transaction
@@ -963,6 +1219,67 @@ export default function App() {
     }));
   };
 
+  // ========================================================
+  // HANDLERS: Rule Engine & Keyword Automation
+  // ========================================================
+  const handleAddRule = (newRule: Omit<TransactionRule, 'id' | 'createdAt' | 'matchCount'>) => {
+    const rule: TransactionRule = {
+      ...newRule,
+      id: `rule-${Date.now().toString().slice(-6)}`,
+      matchCount: 0,
+      createdAt: new Date().toISOString(),
+    };
+    setRules(prev => [rule, ...prev]);
+  };
+
+  const handleEditRule = (ruleId: string, updatedData: Partial<TransactionRule>) => {
+    setRules(prev => prev.map(r => r.id === ruleId ? { ...r, ...updatedData } : r));
+  };
+
+  const handleDeleteRule = (ruleId: string) => {
+    setRules(prev => prev.filter(r => r.id !== ruleId));
+  };
+
+  const handleToggleRule = (ruleId: string) => {
+    setRules(prev => prev.map(r => r.id === ruleId ? { ...r, isEnabled: !r.isEnabled } : r));
+  };
+
+  const handleIncrementRuleMatch = (ruleId: string) => {
+    setRules(prev => prev.map(r => r.id === ruleId ? { ...r, matchCount: (r.matchCount || 0) + 1 } : r));
+  };
+
+  const handleResetDefaultRules = () => {
+    setRules(initialRules);
+  };
+
+  const handleImportRules = (importedRules: TransactionRule[], mode: 'append' | 'replace') => {
+    if (mode === 'replace') {
+      setRules(importedRules);
+    } else {
+      setRules(prev => [...importedRules, ...prev]);
+    }
+  };
+
+  const handleApplyRulesToAllTransactions = () => {
+    const { updatedTransactions, modifiedCount } = applyRulesToTransactionsList(transactions, rules);
+    if (modifiedCount > 0) {
+      setTransactions(updatedTransactions);
+      updatedTransactions.forEach(t => saveSupabaseTransaction(t));
+    }
+    return modifiedCount;
+  };
+
+  // ========================================================
+  // HANDLERS: Manage Dashboard Layout
+  // ========================================================
+  const handleSaveDashboardCards = (updatedCards: DashboardCardConfig[]) => {
+    setDashboardCards(updatedCards);
+  };
+
+  const handleResetDashboardCards = () => {
+    setDashboardCards(initialDashboardCards);
+  };
+
   if (!user) {
     return <AuthView onAuthSuccess={handleAuthSuccess} />;
   }
@@ -990,6 +1307,7 @@ export default function App() {
             <h1 className="text-lg sm:text-xl font-extrabold text-slate-900 capitalize tracking-tight flex items-center gap-2">
               {activeTab === 'dashboard' && 'Dashboard'}
               {activeTab === 'transactions' && 'Transactions'}
+              {activeTab === 'rules' && 'Rules & Automation'}
               {activeTab === 'budgets' && 'Budgets & Limits'}
               {activeTab === 'calendar' && 'Cashflow Calendar'}
               {activeTab === 'categories' && 'Category Manager'}
@@ -1037,9 +1355,25 @@ export default function App() {
                 <Plus className="w-4 h-4 transition-transform duration-300 group-hover:rotate-90 flex-shrink-0" />
               </div>
               <span className="max-w-0 opacity-0 group-hover:max-w-xs group-hover:opacity-100 group-hover:ml-1.5 transition-all duration-300 ease-out whitespace-nowrap overflow-hidden font-bold select-none">
-                Record Expense
+                Record
               </span>
             </button>
+
+            {/* Notification Bell Component */}
+            <NotificationBell
+              user={user}
+              accounts={accounts}
+              loans={loans}
+              groups={groups}
+              transactions={transactions}
+              activityLogs={activityLogs}
+              onNavigateTab={(tab, payload) => {
+                setActiveTab(tab);
+                if (tab === 'groups' && typeof payload === 'string') {
+                  setSelectedGroupId(payload);
+                }
+              }}
+            />
 
             {/* Profile Dropdown Container */}
             <div className="relative" ref={profileDropdownRef}>
@@ -1086,6 +1420,18 @@ export default function App() {
 
                   {/* Menu Items */}
                   <div className="p-1 space-y-0.5">
+                    <button
+                      onClick={() => {
+                        setIsProfileMenuOpen(false);
+                        setIsManageDashboardOpen(true);
+                      }}
+                      id="menu-manage-dashboard"
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition text-left cursor-pointer"
+                    >
+                      <SlidersHorizontal className="w-4 h-4 text-blue-600" />
+                      <span>Manage Dashboard</span>
+                    </button>
+
                     <button
                       onClick={() => {
                         setIsProfileMenuOpen(false);
@@ -1141,8 +1487,13 @@ export default function App() {
               loans={loans}
               groups={groups}
               friends={friends}
+              categories={categories}
+              cardsConfig={dashboardCards}
               onOpenAddExpense={() => setIsAddExpenseModalOpen(true)}
-              onOpenAddAccount={() => setActiveTab('accounts')}
+              onOpenAddAccount={() => {
+                setActiveTab('accounts');
+                setIsAddAccountModalTriggered(true);
+              }}
               onOpenPayEMI={(emi) => {
                 setActiveTab('loans');
               }}
@@ -1152,6 +1503,7 @@ export default function App() {
               onOpenPayCreditCard={(card) => {
                 setActiveTab('accounts');
               }}
+              onPayCreditCardDue={handlePayCreditCardDue}
               onSelectGroup={(groupId) => {
                 setSelectedGroupId(groupId);
                 setActiveTab('groups');
@@ -1160,6 +1512,24 @@ export default function App() {
                 setActiveTab('friends');
               }}
               onNavigateTab={setActiveTab}
+              onOpenManageDashboard={() => setIsManageDashboardOpen(true)}
+            />
+          )}
+
+          {activeTab === 'rules' && (
+            <RulesView
+              user={user}
+              rules={rules}
+              categories={categories}
+              accounts={accounts}
+              transactions={transactions}
+              onAddRule={handleAddRule}
+              onEditRule={handleEditRule}
+              onDeleteRule={handleDeleteRule}
+              onToggleRule={handleToggleRule}
+              onImportRules={handleImportRules}
+              onApplyRulesToAll={handleApplyRulesToAllTransactions}
+              onResetRules={handleResetDefaultRules}
             />
           )}
 
@@ -1225,6 +1595,8 @@ export default function App() {
             <AccountsView
               user={user}
               accounts={accounts}
+              initialOpenAddModal={isAddAccountModalTriggered}
+              onCloseInitialOpenAddModal={() => setIsAddAccountModalTriggered(false)}
               onAddAccount={handleAddAccount}
               onEditAccount={handleEditAccount}
               onDeleteAccount={handleDeleteAccount}
@@ -1241,6 +1613,7 @@ export default function App() {
               accounts={accounts}
               onAddLoan={handleAddLoan}
               onPayEMI={handlePayEMI}
+              onDeleteLoan={handleDeleteLoan}
             />
           )}
 
@@ -1248,6 +1621,7 @@ export default function App() {
             <GroupsView
               user={user}
               groups={groups}
+              friends={friends}
               activityLogs={activityLogs}
               transactions={transactions}
               accounts={accounts}
@@ -1260,6 +1634,7 @@ export default function App() {
               onAddGroupMember={handleAddGroupMember}
               onRemoveGroupMember={handleRemoveGroupMember}
               onSettleGroupDebt={handleSettleGroupDebt}
+              onAddFriend={handleAddFriend}
             />
           )}
 
@@ -1271,6 +1646,7 @@ export default function App() {
               accounts={accounts}
               onAddFriend={handleAddFriend}
               onSettleFriendDebt={handleSettleFriendDebt}
+              onDeleteFriend={handleDeleteFriend}
             />
           )}
 
@@ -1300,8 +1676,19 @@ export default function App() {
         categories={categories}
         loans={loans}
         groups={groups}
+        rules={rules}
         initialDate={addExpensePrefillDate}
         onSaveExpense={handleSaveExpense}
+        onIncrementRuleMatch={handleIncrementRuleMatch}
+      />
+
+      {/* Manage Dashboard Cards Modal */}
+      <ManageDashboardModal
+        isOpen={isManageDashboardOpen}
+        onClose={() => setIsManageDashboardOpen(false)}
+        cardsConfig={dashboardCards}
+        onUpdateCardsConfig={handleSaveDashboardCards}
+        onResetToDefault={handleResetDashboardCards}
       />
 
       {/* User Profile Settings Modal */}

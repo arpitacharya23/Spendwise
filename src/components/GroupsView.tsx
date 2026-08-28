@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { 
   Users2, 
   Plus, 
@@ -13,18 +13,28 @@ import {
   ChevronRight, 
   AlertCircle, 
   ArrowRight, 
+  ArrowUp,
+  ArrowDown,
   Sparkles,
   Calendar,
   Layers,
   Edit2,
   Trash2,
-  CheckCircle2
+  CheckCircle2,
+  Search,
+  UserCheck,
+  Percent,
+  CheckSquare,
+  Square,
+  Divide
 } from 'lucide-react';
-import { Account, Group, GroupActivityLog, GroupMember, SplitMemberShare, Transaction, UserProfile } from '../types';
+import { Account, Friend, Group, GroupActivityLog, GroupMember, SplitMemberShare, Transaction, UserProfile } from '../types';
+import { SplitEditor, SplitMode } from './SplitEditor';
 
 interface GroupsViewProps {
   user: UserProfile;
   groups: Group[];
+  friends: Friend[];
   activityLogs: GroupActivityLog[];
   transactions: Transaction[];
   accounts: Account[];
@@ -32,11 +42,12 @@ interface GroupsViewProps {
   onSelectGroup: (groupId: string | null) => void;
   onCreateGroup: (group: Partial<Group>) => void;
   onAddGroupExpense: (groupId: string, data: { title: string; amount: number; categoryId: string; accountId: string; paidByMemberId: string; splitDetails: SplitMemberShare[]; notes: string }) => void;
-  onEditGroupExpense: (txId: string, data: { title: string; amount: number; splitDetails: SplitMemberShare[]; notes: string }) => void;
+  onEditGroupExpense: (txId: string, data: { title: string; amount: number; date?: string; accountId?: string; paidByMemberId?: string; splitDetails: SplitMemberShare[]; notes: string }) => void;
   onDeleteGroupExpense: (groupId: string, txId: string) => void;
   onAddGroupMember: (groupId: string, name: string, email: string) => void;
   onRemoveGroupMember: (groupId: string, memberId: string, memberName: string) => void;
   onSettleGroupDebt: (groupId: string, fromMemberId: string, toMemberId: string, amount: number, accountId: string) => void;
+  onAddFriend?: (friend: Partial<Friend>) => void;
 }
 
 interface FlowItem {
@@ -79,6 +90,7 @@ function formatFlowDate(dateString: string): string {
 export const GroupsView: React.FC<GroupsViewProps> = ({
   user,
   groups,
+  friends,
   activityLogs,
   transactions,
   accounts,
@@ -91,11 +103,13 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
   onAddGroupMember,
   onRemoveGroupMember,
   onSettleGroupDebt,
+  onAddFriend,
 }) => {
   const activeGroup = groups.find(g => g.id === selectedGroupId) || groups[0];
 
   // Sub-tabs in active group
   const [groupTab, setGroupTab] = useState<'expenses_activity' | 'members'>('expenses_activity');
+  const activityContainerRef = useRef<HTMLDivElement>(null);
 
   // Modals state
   const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] = useState(false);
@@ -109,6 +123,8 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
   const [newGroupDesc, setNewGroupDesc] = useState('');
   const [newGroupCat, setNewGroupCat] = useState<'Trip' | 'Home' | 'Project' | 'Friends' | 'Other'>('Trip');
   const [newGroupColor, setNewGroupColor] = useState('#0EA5E9');
+  const [selectedInitialFriendIds, setSelectedInitialFriendIds] = useState<string[]>([]);
+  const [friendSearchCreate, setFriendSearchCreate] = useState('');
 
   // Add Expense Form
   const [expTitle, setExpTitle] = useState('');
@@ -116,12 +132,17 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
   const [expPaidBy, setExpPaidBy] = useState('mem-1');
   const [expAccountId, setExpAccountId] = useState('');
   const [expNotes, setExpNotes] = useState('');
-  // Member split selections
+  // Member split state
+  const [splitMode, setSplitMode] = useState<SplitMode>('equal');
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
-  const [customShares, setCustomShares] = useState<Record<string, number>>({});
-  const [isCustomSplit, setIsCustomSplit] = useState(false);
+  const [exactShares, setExactShares] = useState<Record<string, number>>({});
+  const [percentageShares, setPercentageShares] = useState<Record<string, number>>({});
 
   // Add Member Form
+  const [addMemberTab, setAddMemberTab] = useState<'global_friends' | 'manual'>('global_friends');
+  const [selectedFriendIdsToAdd, setSelectedFriendIdsToAdd] = useState<string[]>([]);
+  const [friendSearchAdd, setFriendSearchAdd] = useState('');
+  const [saveToGlobalFriends, setSaveToGlobalFriends] = useState(true);
   const [newMemName, setNewMemName] = useState('');
   const [newMemEmail, setNewMemEmail] = useState('');
 
@@ -130,6 +151,26 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
   const [settleTo, setSettleTo] = useState('');
   const [settleAmount, setSettleAmount] = useState('');
   const [settleAccount, setSettleAccount] = useState('');
+
+  // Edit Expense Form State
+  const [editExpTitle, setEditExpTitle] = useState('');
+  const [editExpAmount, setEditExpAmount] = useState('');
+  const [editExpDate, setEditExpDate] = useState('');
+  const [editExpPaidBy, setEditExpPaidBy] = useState('mem-1');
+  const [editExpAccountId, setEditExpAccountId] = useState('');
+  const [editExpNotes, setEditExpNotes] = useState('');
+  const [editSplitMode, setEditSplitMode] = useState<SplitMode>('equal');
+  const [editSelectedMemberIds, setEditSelectedMemberIds] = useState<string[]>([]);
+  const [editExactShares, setEditExactShares] = useState<Record<string, number>>({});
+  const [editPercentageShares, setEditPercentageShares] = useState<Record<string, number>>({});
+
+  // Global friends not yet in active group
+  const unaddedFriends = useMemo(() => {
+    if (!activeGroup || !friends) return [];
+    const groupEmails = new Set(activeGroup.members.map(m => (m.email || '').toLowerCase().trim()));
+    const groupNames = new Set(activeGroup.members.map(m => m.name.toLowerCase().trim()));
+    return friends.filter(f => !groupEmails.has(f.email.toLowerCase().trim()) && !groupNames.has(f.name.toLowerCase().trim()));
+  }, [activeGroup, friends]);
 
   // When opening add expense, initialize all members as selected
   const openAddExpenseModal = () => {
@@ -141,22 +182,49 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
       setExpTitle('');
       setExpAmount('');
       setExpNotes('');
-      setIsCustomSplit(false);
-      setCustomShares({});
+      setSplitMode('equal');
+      setExactShares({});
+      setPercentageShares({});
     }
     setIsAddExpenseModalOpen(true);
   };
 
   const openEditExpenseModal = (tx: Transaction) => {
     setEditingTx(tx);
-    setExpTitle(tx.title);
-    setExpAmount(String(tx.amount));
-    setExpNotes(tx.notes || '');
-    if (tx.splitDetails) {
-      setSelectedMemberIds(tx.splitDetails.filter(s => s.isSelected).map(s => s.memberId));
-      const sharesMap: Record<string, number> = {};
-      tx.splitDetails.forEach(s => { sharesMap[s.memberId] = s.shareAmount; });
-      setCustomShares(sharesMap);
+    setEditExpTitle(tx.title);
+    setEditExpAmount(String(tx.amount));
+    setEditExpDate(tx.date || new Date().toISOString().split('T')[0]);
+    setEditExpPaidBy(tx.paidByMemberId || activeGroup?.members[0]?.id || 'mem-1');
+    setEditExpAccountId(tx.accountId || accounts[0]?.id || 'acc-1');
+    setEditExpNotes(tx.notes || '');
+
+    if (tx.splitDetails && tx.splitDetails.length > 0) {
+      const selected = tx.splitDetails.filter(s => s.isSelected).map(s => s.memberId);
+      const chosenSelected = selected.length > 0 ? selected : (activeGroup?.members.map(m => m.id) || []);
+      setEditSelectedMemberIds(chosenSelected);
+
+      const exactMap: Record<string, number> = {};
+      const percentMap: Record<string, number> = {};
+      let isExact = false;
+      const count = chosenSelected.length || 1;
+      const equalShare = Math.round((tx.amount / count) * 100) / 100;
+
+      tx.splitDetails.forEach(s => { 
+        exactMap[s.memberId] = s.shareAmount; 
+        percentMap[s.memberId] = Math.round(((s.shareAmount / (tx.amount || 1)) * 100) * 10) / 10;
+        if (s.isSelected && Math.abs(s.shareAmount - equalShare) > 1) {
+          isExact = true;
+        }
+      });
+
+      setEditExactShares(exactMap);
+      setEditPercentageShares(percentMap);
+      setEditSplitMode(isExact ? 'exact' : 'equal');
+    } else if (activeGroup) {
+      setEditSelectedMemberIds(activeGroup.members.map(m => m.id));
+      setEditExactShares({});
+      setEditPercentageShares({});
+      setEditSplitMode('equal');
     }
   };
 
@@ -170,8 +238,24 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
     }
   };
 
-  // Group-specific transactions and logs
-  const groupTransactions = transactions.filter(t => t.groupId === activeGroup?.id);
+  const toggleEditMemberSelection = (memberId: string) => {
+    if (editSelectedMemberIds.includes(memberId)) {
+      if (editSelectedMemberIds.length === 1) return; // Must have at least 1 person selected
+      setEditSelectedMemberIds(editSelectedMemberIds.filter(id => id !== memberId));
+    } else {
+      setEditSelectedMemberIds([...editSelectedMemberIds, memberId]);
+    }
+  };
+
+  // Group-specific transactions and logs (latest on top)
+  const groupTransactions = transactions
+    .filter(t => t.groupId === activeGroup?.id)
+    .sort((a, b) => {
+      const timeA = new Date(a.updatedAt || a.date).getTime() || new Date(a.date).getTime() || 0;
+      const timeB = new Date(b.updatedAt || b.date).getTime() || new Date(b.date).getTime() || 0;
+      if (timeB !== timeA) return timeB - timeA;
+      return (b.id || '').localeCompare(a.id || '');
+    });
   const groupLogs = activityLogs
     .filter(l => l.groupId === activeGroup?.id)
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
@@ -179,7 +263,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
   // Total group spending
   const totalGroupSpend = groupTransactions.reduce((sum, t) => sum + t.amount, 0);
 
-  // Unified Chat / Event Flow Feed (Chronological Stream)
+  // Unified Chat / Event Flow Feed (Latest on Top)
   const flowItems = useMemo<FlowItem[]>(() => {
     if (!activeGroup) return [];
 
@@ -309,8 +393,13 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
       }
     });
 
-    // 3. Sort chronologically (oldest to newest for natural chat timeline)
-    return items.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    // 3. Sort chronologically (latest to oldest, so latest is on top)
+    return items.sort((a, b) => {
+      const timeA = new Date(a.timestamp).getTime() || 0;
+      const timeB = new Date(b.timestamp).getTime() || 0;
+      if (timeB !== timeA) return timeB - timeA;
+      return (b.id || '').localeCompare(a.id || '');
+    });
   }, [activeGroup, activityLogs, groupTransactions, user.currency, user.name]);
 
   // Group flow items by date
@@ -399,11 +488,23 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
     const splitDetails: SplitMemberShare[] = activeGroup.members.map(m => {
       const isSelected = selectedMemberIds.includes(m.id);
       const isPayer = m.id === expPaidBy;
+      let share = 0;
+      if (isSelected) {
+        if (splitMode === 'equal') {
+          share = perPersonShare;
+        } else if (splitMode === 'exact') {
+          share = exactShares[m.id] !== undefined ? exactShares[m.id] : perPersonShare;
+        } else if (splitMode === 'percentage') {
+          const pct = percentageShares[m.id] !== undefined ? percentageShares[m.id] : (activeCount > 0 ? (100 / activeCount) : 0);
+          share = Math.round(((pct / 100) * totalAmountNum) * 100) / 100;
+        }
+      }
+
       return {
         memberId: m.id,
         memberName: m.name,
         memberEmail: m.email,
-        shareAmount: isSelected ? (isCustomSplit ? (customShares[m.id] || 0) : perPersonShare) : 0,
+        shareAmount: Math.max(0, share),
         paidAmount: isPayer ? totalAmountNum : 0,
         isSelected,
       };
@@ -422,30 +523,52 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
     setIsAddExpenseModalOpen(false);
   };
 
+  // Dynamic calculation for edit modal
+  const editTotalAmountNum = Number(editExpAmount) || 0;
+  const editActiveCount = editSelectedMemberIds.length;
+  const editPerPersonShare = editActiveCount > 0 ? Math.round((editTotalAmountNum / editActiveCount) * 100) / 100 : 0;
+
   const handleSaveEditExpense = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTx || !activeGroup) return;
-    const amount = Number(expAmount) || editingTx.amount;
-    const activeSelected = selectedMemberIds.length;
-    const perShare = activeSelected > 0 ? Math.round((amount / activeSelected) * 100) / 100 : 0;
+    const amount = Number(editExpAmount) || editingTx.amount;
+    const activeSelected = editSelectedMemberIds.length;
+    if (activeSelected === 0 || amount <= 0) return;
+    const equalShare = Math.round((amount / activeSelected) * 100) / 100;
 
     const splitDetails: SplitMemberShare[] = activeGroup.members.map(m => {
-      const isSelected = selectedMemberIds.includes(m.id);
+      const isSelected = editSelectedMemberIds.includes(m.id);
+      const isPayer = m.id === editExpPaidBy;
+      let share = 0;
+      if (isSelected) {
+        if (editSplitMode === 'equal') {
+          share = equalShare;
+        } else if (editSplitMode === 'exact') {
+          share = editExactShares[m.id] !== undefined ? editExactShares[m.id] : equalShare;
+        } else if (editSplitMode === 'percentage') {
+          const pct = editPercentageShares[m.id] !== undefined ? editPercentageShares[m.id] : (activeSelected > 0 ? (100 / activeSelected) : 0);
+          share = Math.round(((pct / 100) * amount) * 100) / 100;
+        }
+      }
+
       return {
         memberId: m.id,
         memberName: m.name,
         memberEmail: m.email,
-        shareAmount: isSelected ? perShare : 0,
-        paidAmount: m.id === (editingTx.paidByMemberId || 'mem-1') ? amount : 0,
+        shareAmount: Math.max(0, share),
+        paidAmount: isPayer ? amount : 0,
         isSelected,
       };
     });
 
     onEditGroupExpense(editingTx.id, {
-      title: expTitle,
+      title: editExpTitle,
       amount,
+      date: editExpDate,
+      accountId: editExpAccountId,
+      paidByMemberId: editExpPaidBy,
       splitDetails,
-      notes: expNotes,
+      notes: editExpNotes,
     });
 
     setEditingTx(null);
@@ -455,29 +578,83 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
     e.preventDefault();
     if (!newGroupName) return;
 
+    // Convert selected global friends to initial group members
+    const chosenFriends = (friends || []).filter(f => selectedInitialFriendIds.includes(f.id));
+    const initialMembers: GroupMember[] = [
+      { 
+        id: 'mem-1', 
+        name: `${user.name} (You)`, 
+        email: user.email, 
+        avatarColor: user.avatarColor, 
+        role: 'admin', 
+        joinedAt: new Date().toISOString().split('T')[0] 
+      },
+      ...chosenFriends.map((f, idx) => ({
+        id: `mem-${Date.now().toString().slice(-4)}-${idx + 2}`,
+        name: f.name,
+        email: f.email,
+        avatarColor: f.avatarColor || '#3B82F6',
+        role: 'member' as const,
+        joinedAt: new Date().toISOString().split('T')[0]
+      }))
+    ];
+
     onCreateGroup({
       name: newGroupName,
       description: newGroupDesc || 'Shared expenses',
       category: newGroupCat,
       avatarColor: newGroupColor,
       currency: user.currency,
-      members: [
-        { id: 'mem-1', name: `${user.name} (You)`, email: user.email, avatarColor: user.avatarColor, role: 'admin', joinedAt: new Date().toISOString().split('T')[0] }
-      ],
+      members: initialMembers,
     });
 
     setIsCreateGroupModalOpen(false);
     setNewGroupName('');
     setNewGroupDesc('');
+    setSelectedInitialFriendIds([]);
+    setFriendSearchCreate('');
+  };
+
+  // Add a single friend from global directory directly to active group
+  const handleQuickAddFriendToGroup = (friend: Friend) => {
+    if (!activeGroup) return;
+    onAddGroupMember(activeGroup.id, friend.name, friend.email);
+  };
+
+  // Add multiple selected global friends to active group
+  const handleBatchAddFriendsToGroup = () => {
+    if (!activeGroup || selectedFriendIdsToAdd.length === 0) return;
+    const friendsToAdd = (friends || []).filter(f => selectedFriendIdsToAdd.includes(f.id));
+    friendsToAdd.forEach(f => {
+      onAddGroupMember(activeGroup.id, f.name, f.email);
+    });
+    setSelectedFriendIdsToAdd([]);
+    setFriendSearchAdd('');
+    setIsAddMemberModalOpen(false);
   };
 
   const handleAddMemberSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeGroup || !newMemName || !newMemEmail) return;
+
+    // 1. Add to group
     onAddGroupMember(activeGroup.id, newMemName, newMemEmail);
+
+    // 2. Also add to global friends list if checked and onAddFriend is provided
+    if (saveToGlobalFriends && onAddFriend) {
+      onAddFriend({
+        name: newMemName,
+        email: newMemEmail,
+        phone: '',
+        avatarColor: '#3B82F6',
+      });
+    }
+
     setIsAddMemberModalOpen(false);
     setNewMemName('');
     setNewMemEmail('');
+    setFriendSearchAdd('');
+    setSelectedFriendIdsToAdd([]);
   };
 
   const handleExecuteSettleDebt = (e: React.FormEvent) => {
@@ -490,24 +667,16 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
 
   return (
     <div className="space-y-6 pb-12">
-      {/* Top Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
-            Splitwise
-          </h1>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setIsCreateGroupModalOpen(true)}
-            id="btn-create-group"
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm shadow-sm transition active:scale-95"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Create New Group</span>
-          </button>
-        </div>
+      {/* Top Action Toolbar */}
+      <div className="flex items-center justify-end gap-3 flex-wrap">
+        <button
+          onClick={() => setIsCreateGroupModalOpen(true)}
+          id="btn-create-group"
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm shadow-sm transition active:scale-95"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Create New Group</span>
+        </button>
       </div>
 
       {/* Groups Horizontal Selector Tabs */}
@@ -597,10 +766,72 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
             })}
           </div>
 
-          {/* UNIFIED CHAT-STYLE SINGLE FLOW (Expenses, Member Updates, Settlements) */}
+          {/* UNIFIED CHAT-STYLE SINGLE FLOW (Expenses, Member Updates, Settlements) - INDEPENDENT SCROLL CONTAINER */}
           {groupTab === 'expenses_activity' && (
-            <div className="p-4 sm:p-6 bg-slate-50/40">
-              <div className="max-w-3xl mx-auto space-y-6">
+            <div className="flex flex-col bg-slate-50/40">
+              {/* Activity Flow Container Toolbar / Header Status */}
+              <div className="px-6 py-2.5 bg-white/90 backdrop-blur-xs border-b border-slate-200/80 flex items-center justify-between text-xs text-slate-500">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="inline-flex items-center gap-1.5 font-bold text-slate-700">
+                    <History className="w-3.5 h-3.5 text-blue-600" />
+                    Activity Flow
+                  </span>
+                  <span>•</span>
+                  <span className="text-slate-500 font-medium">{flowItems.length} event{flowItems.length === 1 ? '' : 's'} recorded</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {flowItems.length > 2 && (
+                    <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          activityContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        className="px-2 py-1 text-[11px] font-semibold text-slate-600 hover:text-slate-900 hover:bg-white rounded-md transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                        title="Scroll to Top"
+                      >
+                        <ArrowUp className="w-3 h-3" />
+                        <span className="hidden sm:inline">Top</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (activityContainerRef.current) {
+                            activityContainerRef.current.scrollTo({
+                              top: activityContainerRef.current.scrollHeight,
+                              behavior: 'smooth',
+                            });
+                          }
+                        }}
+                        className="px-2 py-1 text-[11px] font-semibold text-slate-600 hover:text-slate-900 hover:bg-white rounded-md transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                        title="Scroll to Bottom"
+                      >
+                        <ArrowDown className="w-3 h-3" />
+                        <span className="hidden sm:inline">Bottom</span>
+                      </button>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={openAddExpenseModal}
+                    className="px-2.5 py-1 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 hover:text-blue-800 rounded-lg border border-blue-200/80 transition cursor-pointer flex items-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Add Expense</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Independently Scrollable Timeline Viewport */}
+              <div
+                ref={activityContainerRef}
+                id="activity-flow-scroll-container"
+                className="h-[600px] max-h-[calc(100vh-280px)] min-h-[380px] overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-6 scroll-smooth scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100 focus:outline-none"
+                tabIndex={0}
+              >
+                <div className="max-w-3xl mx-auto space-y-6">
                 
                 {/* Empty State */}
                 {flowItems.length === 0 ? (
@@ -695,13 +926,14 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
                           }
 
                           // Render Expense Message Card (Added or Edited)
-                          const payer = item.tx
-                            ? (activeGroup.members.find(m => m.id === item.tx?.paidByMemberId) || activeGroup.members[0])
+                          const currentTx = item.tx || groupTransactions.find(t => t.id === item.details?.txId || t.id === item.id);
+                          const payer = currentTx
+                            ? (activeGroup.members.find(m => m.id === currentTx?.paidByMemberId) || activeGroup.members[0])
                             : null;
-                          const selectedCount = item.tx?.splitDetails?.filter(s => s.isSelected).length || activeGroup.members.length;
-                          const deselectedMembers = item.tx?.splitDetails?.filter(s => !s.isSelected) || [];
-                          const amount = item.tx?.amount || item.details?.amount || 0;
-                          const title = item.tx?.title || item.details?.txTitle || 'Expense';
+                          const selectedCount = currentTx?.splitDetails?.filter(s => s.isSelected).length || activeGroup.members.length;
+                          const deselectedMembers = currentTx?.splitDetails?.filter(s => !s.isSelected) || [];
+                          const amount = currentTx?.amount || item.details?.amount || 0;
+                          const title = currentTx?.title || item.details?.txTitle || 'Expense';
 
                           return (
                             <div key={item.id} className="flex items-start space-x-3 my-3">
@@ -750,21 +982,23 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
                                     </span>
 
                                     {/* Action Buttons */}
-                                    {item.tx && (
+                                    {currentTx && (
                                       <div className="flex items-center gap-1 mt-1.5">
                                         <button
-                                          onClick={() => openEditExpenseModal(item.tx!)}
-                                          className="p-1 text-slate-400 hover:text-blue-600 hover:bg-slate-200/60 rounded-md transition cursor-pointer"
+                                          onClick={() => openEditExpenseModal(currentTx)}
+                                          className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition cursor-pointer flex items-center gap-1 text-[11px] font-medium"
                                           title="Edit Expense"
                                         >
                                           <Edit2 className="w-3.5 h-3.5" />
+                                          <span className="hidden sm:inline">Edit</span>
                                         </button>
                                         <button
-                                          onClick={() => onDeleteGroupExpense(activeGroup.id, item.tx!.id)}
-                                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-100/60 rounded-md transition cursor-pointer"
+                                          onClick={() => onDeleteGroupExpense(activeGroup.id, currentTx.id)}
+                                          className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer flex items-center gap-1 text-[11px] font-medium"
                                           title="Delete Expense"
                                         >
                                           <Trash2 className="w-3.5 h-3.5" />
+                                          <span className="hidden sm:inline">Delete</span>
                                         </button>
                                       </div>
                                     )}
@@ -805,6 +1039,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
                   </div>
                 )}
 
+                </div>
               </div>
             </div>
           )}
@@ -818,13 +1053,61 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
                   <p className="text-xs text-slate-500 mt-0.5">Individual shares, total paid, and net balance owed.</p>
                 </div>
                 <button
-                  onClick={() => setIsAddMemberModalOpen(true)}
+                  onClick={() => {
+                    setSelectedFriendIdsToAdd([]);
+                    setFriendSearchAdd('');
+                    setAddMemberTab(unaddedFriends.length > 0 ? 'global_friends' : 'manual');
+                    setIsAddMemberModalOpen(true);
+                  }}
                   className="flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer transition"
                 >
                   <UserPlus className="w-3.5 h-3.5" />
                   <span>Add Member</span>
                 </button>
               </div>
+
+              {/* Quick Add from Global Friends Bar (if any available) */}
+              {unaddedFriends.length > 0 && (
+                <div className="mb-5 p-3.5 bg-blue-50/70 rounded-2xl border border-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2">
+                    <Users2 className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                    <div>
+                      <p className="text-xs font-bold text-blue-900">Quick add from your Friends Directory:</p>
+                      <p className="text-[11px] text-blue-700">{unaddedFriends.length} global friend{unaddedFriends.length > 1 ? 's' : ''} not in this group yet</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {unaddedFriends.slice(0, 4).map((f) => (
+                      <button
+                        key={f.id}
+                        onClick={() => handleQuickAddFriendToGroup(f)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white hover:bg-blue-600 text-blue-700 hover:text-white font-bold text-xs rounded-xl border border-blue-200 shadow-2xs transition cursor-pointer"
+                        title={`Add ${f.name} to this group`}
+                      >
+                        <div
+                          className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[9px]"
+                          style={{ backgroundColor: f.avatarColor || '#3B82F6' }}
+                        >
+                          {f.name.substring(0, 1).toUpperCase()}
+                        </div>
+                        <span>+ {f.name.split(' ')[0]}</span>
+                      </button>
+                    ))}
+                    {unaddedFriends.length > 4 && (
+                      <button
+                        onClick={() => {
+                          setAddMemberTab('global_friends');
+                          setIsAddMemberModalOpen(true);
+                        }}
+                        className="text-xs font-bold text-blue-700 hover:underline px-1 cursor-pointer"
+                      >
+                        +{unaddedFriends.length - 4} more
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="divide-y divide-slate-100">
                 {activeGroup.members.map((mem) => {
@@ -931,16 +1214,27 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
         </div>
       )}
 
-      {/* MODAL 1: Add Group Expense with Person Deselection */}
+      {/* MODAL 1: Add Group Expense with Advanced SplitEditor */}
       {isAddExpenseModalOpen && activeGroup && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fadeIn">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
-            <h2 className="text-xl font-bold text-slate-900 mb-1">Add Group Expense</h2>
-            <p className="text-xs text-slate-700 mb-4">
-              Group: <strong>{activeGroup.name}</strong> • Deselect any person who did not participate in this expense.
-            </p>
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">Add Group Expense</h2>
+                <p className="text-xs text-slate-600">
+                  Group: <strong>{activeGroup.name}</strong> • Split equally, by exact amount, or percentages.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddExpenseModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-            <form onSubmit={handleSaveExpense} className="space-y-4">
+            <form onSubmit={handleSaveExpense} className="space-y-4 mt-2">
               <div>
                 <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Expense Title / Description</label>
                 <input
@@ -995,54 +1289,39 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
                 </select>
               </div>
 
-              {/* Person Deselection & Custom Split Matrix */}
-              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold uppercase text-slate-700">
-                    Split with ({activeCount} of {activeGroup.members.length} members selected)
-                  </span>
-                  <span className="text-xs font-bold text-blue-600">
-                    {activeCount > 0 ? `${user.currency}${perPersonShare}/person` : 'Select at least 1'}
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-700">
-                  Tap any member to include or exclude them from this bill:
-                </p>
-
-                <div className="space-y-2">
-                  {activeGroup.members.map((m) => {
-                    const isSelected = selectedMemberIds.includes(m.id);
-                    return (
-                      <div
-                        key={m.id}
-                        onClick={() => toggleMemberSelection(m.id)}
-                        className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer transition ${
-                          isSelected
-                            ? 'bg-white border-blue-500 shadow-xs'
-                            : 'bg-slate-100/60 border-slate-200 opacity-60'
-                        }`}
-                      >
-                        <div className="flex items-center space-x-2.5">
-                          <div className={`w-5 h-5 rounded-md flex items-center justify-center text-xs text-white ${isSelected ? 'bg-blue-600' : 'bg-slate-300'}`}>
-                            {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-                          </div>
-                          <span className={`text-xs font-bold ${isSelected ? 'text-slate-900' : 'text-slate-500'}`}>
-                            {m.name}
-                          </span>
-                        </div>
-
-                        <div className="text-xs font-bold">
-                          {isSelected ? (
-                            <span className="text-blue-700">{user.currency}{perPersonShare}</span>
-                          ) : (
-                            <span className="text-slate-400">Excluded (₹0)</span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+              {/* Advanced Split Editor */}
+              <SplitEditor
+                members={activeGroup.members}
+                totalAmount={totalAmountNum}
+                currency={user.currency}
+                splitMode={splitMode}
+                selectedMemberIds={selectedMemberIds}
+                exactShares={exactShares}
+                percentageShares={percentageShares}
+                onChangeSplitMode={setSplitMode}
+                onSplitModeChange={setSplitMode}
+                onToggleMember={toggleMemberSelection}
+                onSelectAll={() => setSelectedMemberIds(activeGroup.members.map(m => m.id))}
+                onDeselectAll={() => {
+                  if (activeGroup.members.length > 0) {
+                    setSelectedMemberIds([expPaidBy || activeGroup.members[0].id]);
+                  }
+                }}
+                onSelectAllMembers={() => setSelectedMemberIds(activeGroup.members.map(m => m.id))}
+                onDeselectAllMembers={() => {
+                  if (activeGroup.members.length > 0) {
+                    setSelectedMemberIds([expPaidBy || activeGroup.members[0].id]);
+                  }
+                }}
+                onChangeExactShares={setExactShares}
+                onExactShareChange={(memId, val) => {
+                  setExactShares(prev => ({ ...prev, [memId]: val }));
+                }}
+                onChangePercentageShares={setPercentageShares}
+                onPercentageShareChange={(memId, val) => {
+                  setPercentageShares(prev => ({ ...prev, [memId]: val }));
+                }}
+              />
 
               <div>
                 <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Notes / Why someone was excluded</label>
@@ -1059,14 +1338,14 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsAddExpenseModalOpen(false)}
-                  className="px-4 py-2.5 text-slate-600 hover:bg-slate-100 rounded-xl text-sm font-semibold"
+                  className="px-4 py-2.5 text-slate-600 hover:bg-slate-100 rounded-xl text-sm font-semibold cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={activeCount === 0 || !totalAmountNum}
-                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold shadow-sm"
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold shadow-sm cursor-pointer"
                 >
                   Save & Split Expense
                 </button>
@@ -1076,14 +1355,25 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
         </div>
       )}
 
-      {/* MODAL 2: Create Group */}
+      {/* MODAL 2: Create Group with Global Friends picker */}
       {isCreateGroupModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fadeIn">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
-            <h2 className="text-xl font-bold text-slate-900 mb-1">Create New Splitwise Group</h2>
-            <p className="text-xs text-slate-700 mb-4">Set up a group for a trip, house rent, or shared project.</p>
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">Create New Group</h2>
+                <p className="text-xs text-slate-600">Set up a group for a trip, house rent, or shared project.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCreateGroupModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-            <form onSubmit={handleCreateNewGroup} className="space-y-4">
+            <form onSubmit={handleCreateNewGroup} className="space-y-4 mt-2">
               <div>
                 <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Group Name</label>
                 <input
@@ -1115,24 +1405,96 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
                       key={c}
                       type="button"
                       onClick={() => setNewGroupColor(c)}
-                      className={`w-7 h-7 rounded-full transition-transform ${newGroupColor === c ? 'scale-125 ring-2 ring-slate-900' : 'hover:scale-110'}`}
+                      className={`w-7 h-7 rounded-full transition-transform cursor-pointer ${newGroupColor === c ? 'scale-125 ring-2 ring-slate-900' : 'hover:scale-110'}`}
                       style={{ backgroundColor: c }}
                     />
                   ))}
                 </div>
               </div>
 
+              {/* Initial Global Friends Selector */}
+              {friends && friends.length > 0 && (
+                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold uppercase text-slate-700">
+                      Add Members from Friends ({selectedInitialFriendIds.length} selected)
+                    </label>
+                    {selectedInitialFriendIds.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedInitialFriendIds([])}
+                        className="text-[11px] text-slate-500 hover:text-slate-800 cursor-pointer"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search friends by name..."
+                      value={friendSearchCreate}
+                      onChange={(e) => setFriendSearchCreate(e.target.value)}
+                      className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+                    {friends
+                      .filter(f => f.name.toLowerCase().includes(friendSearchCreate.toLowerCase()) || (f.email && f.email.toLowerCase().includes(friendSearchCreate.toLowerCase())))
+                      .map(friend => {
+                        const isSelected = selectedInitialFriendIds.includes(friend.id);
+                        return (
+                          <div
+                            key={friend.id}
+                            onClick={() => {
+                              if (isSelected) {
+                                setSelectedInitialFriendIds(selectedInitialFriendIds.filter(id => id !== friend.id));
+                              } else {
+                                setSelectedInitialFriendIds([...selectedInitialFriendIds, friend.id]);
+                              }
+                            }}
+                            className={`p-2 rounded-xl flex items-center justify-between cursor-pointer border transition ${
+                              isSelected
+                                ? 'bg-blue-50 border-blue-300 text-blue-900'
+                                : 'bg-white border-slate-100 hover:border-slate-200 text-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <div
+                                className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold"
+                                style={{ backgroundColor: friend.avatarColor || '#3B82F6' }}
+                              >
+                                {friend.name.substring(0, 1).toUpperCase()}
+                              </div>
+                              <div>
+                                <p className="text-xs font-bold">{friend.name}</p>
+                                {friend.email && <p className="text-[10px] text-slate-500">{friend.email}</p>}
+                              </div>
+                            </div>
+                            <div className={`w-4 h-4 rounded flex items-center justify-center ${isSelected ? 'bg-blue-600 text-white' : 'border border-slate-300'}`}>
+                              {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
                 <button
                   type="button"
                   onClick={() => setIsCreateGroupModalOpen(false)}
-                  className="px-4 py-2.5 text-slate-600 hover:bg-slate-100 rounded-xl text-sm font-semibold"
+                  className="px-4 py-2.5 text-slate-600 hover:bg-slate-100 rounded-xl text-sm font-semibold cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold shadow-sm"
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold shadow-sm cursor-pointer"
                 >
                   Create Group
                 </button>
@@ -1142,56 +1504,217 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
         </div>
       )}
 
-      {/* MODAL 3: Add Group Member */}
-      {isAddMemberModalOpen && (
+      {/* MODAL 3: Add Group Member from Global Friends or Manual */}
+      {isAddMemberModalOpen && activeGroup && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fadeIn">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
-            <h2 className="text-xl font-bold text-slate-900 mb-1">Add Member to Group</h2>
-            <p className="text-xs text-slate-700 mb-4">
-              This will also log a <code>member_joined</code> event into the WhatsApp-style activity feed.
-            </p>
-
-            <form onSubmit={handleAddMemberSubmit} className="space-y-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-2">
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Member Name</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Vikram Seth"
-                  value={newMemName}
-                  onChange={(e) => setNewMemName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
-                />
+                <h2 className="text-xl font-bold text-slate-900">Add Member to Group</h2>
+                <p className="text-xs text-slate-600">
+                  Group: <strong>{activeGroup.name}</strong>
+                </p>
               </div>
+              <button
+                type="button"
+                onClick={() => setIsAddMemberModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Email Address</label>
-                <input
-                  type="email"
-                  required
-                  placeholder="vikram.seth@example.com"
-                  value={newMemEmail}
-                  onChange={(e) => setNewMemEmail(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
-                />
-              </div>
+            {/* Tab selector between Global Friends and Manual */}
+            <div className="flex bg-slate-100 p-1 rounded-xl mb-4 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setAddMemberTab('global_friends')}
+                className={`flex-1 py-1.5 rounded-lg transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                  addMemberTab === 'global_friends'
+                    ? 'bg-white text-blue-700 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Users2 className="w-3.5 h-3.5" />
+                <span>From Global Friends ({unaddedFriends.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAddMemberTab('manual')}
+                className={`flex-1 py-1.5 rounded-lg transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                  addMemberTab === 'manual'
+                    ? 'bg-white text-blue-700 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>New Person</span>
+              </button>
+            </div>
 
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => setIsAddMemberModalOpen(false)}
-                  className="px-4 py-2.5 text-slate-600 hover:bg-slate-100 rounded-xl text-sm font-semibold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold shadow-sm"
-                >
-                  Add Member
-                </button>
+            {addMemberTab === 'global_friends' ? (
+              <div className="space-y-4">
+                {unaddedFriends.length > 0 ? (
+                  <>
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Search global friends..."
+                        value={friendSearchAdd}
+                        onChange={(e) => setFriendSearchAdd(e.target.value)}
+                        className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+                      {unaddedFriends
+                        .filter(f => f.name.toLowerCase().includes(friendSearchAdd.toLowerCase()) || (f.email && f.email.toLowerCase().includes(friendSearchAdd.toLowerCase())))
+                        .map(friend => {
+                          const isSelected = selectedFriendIdsToAdd.includes(friend.id);
+                          return (
+                            <div
+                              key={friend.id}
+                              onClick={() => {
+                                if (isSelected) {
+                                  setSelectedFriendIdsToAdd(selectedFriendIdsToAdd.filter(id => id !== friend.id));
+                                } else {
+                                  setSelectedFriendIdsToAdd([...selectedFriendIdsToAdd, friend.id]);
+                                }
+                              }}
+                              className={`p-2.5 rounded-2xl flex items-center justify-between cursor-pointer border transition ${
+                                isSelected
+                                  ? 'bg-blue-50 border-blue-400 shadow-xs'
+                                  : 'bg-white border-slate-200 hover:border-slate-300'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <div
+                                  className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                                  style={{ backgroundColor: friend.avatarColor || '#3B82F6' }}
+                                >
+                                  {friend.name.substring(0, 2).toUpperCase()}
+                                </div>
+                                <div>
+                                  <p className="text-xs font-bold text-slate-900">{friend.name}</p>
+                                  <p className="text-[11px] text-slate-500">{friend.email || friend.phone || 'No email provided'}</p>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleQuickAddFriendToGroup(friend);
+                                    setIsAddMemberModalOpen(false);
+                                  }}
+                                  className="px-2.5 py-1 bg-slate-100 hover:bg-blue-600 text-slate-700 hover:text-white font-bold text-xs rounded-lg transition cursor-pointer"
+                                >
+                                  Add Now
+                                </button>
+                                <div className={`w-5 h-5 rounded-md flex items-center justify-center text-xs text-white ${isSelected ? 'bg-blue-600' : 'border border-slate-300'}`}>
+                                  {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+
+                    <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+                      <button
+                        type="button"
+                        onClick={() => setIsAddMemberModalOpen(false)}
+                        className="px-4 py-2.5 text-slate-600 hover:bg-slate-100 rounded-xl text-sm font-semibold cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={selectedFriendIdsToAdd.length === 0}
+                        onClick={handleBatchAddFriendsToGroup}
+                        className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold shadow-sm cursor-pointer"
+                      >
+                        Add {selectedFriendIdsToAdd.length > 0 ? `(${selectedFriendIdsToAdd.length})` : ''} to Group
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center py-6 space-y-3">
+                    <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto">
+                      <UserCheck className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">All global friends are already in this group!</p>
+                      <p className="text-xs text-slate-500 mt-1">You can add a new person or switch to manual entry.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setAddMemberTab('manual')}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-semibold hover:bg-blue-700 cursor-pointer"
+                    >
+                      Enter New Friend Details
+                    </button>
+                  </div>
+                )}
               </div>
-            </form>
+            ) : (
+              <form onSubmit={handleAddMemberSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Member Name</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Vikram Seth"
+                    value={newMemName}
+                    onChange={(e) => setNewMemName(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Email Address</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="vikram.seth@example.com"
+                    value={newMemEmail}
+                    onChange={(e) => setNewMemEmail(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
+                  />
+                </div>
+
+                <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-100 flex items-center gap-2.5">
+                  <input
+                    type="checkbox"
+                    id="saveGlobalFriendCheck"
+                    checked={saveToGlobalFriends}
+                    onChange={(e) => setSaveToGlobalFriends(e.target.checked)}
+                    className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4"
+                  />
+                  <label htmlFor="saveGlobalFriendCheck" className="text-xs font-medium text-blue-950 cursor-pointer">
+                    Also save to my <strong>Global Friends</strong> directory so I can reuse them in other groups.
+                  </label>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddMemberModalOpen(false)}
+                    className="px-4 py-2.5 text-slate-600 hover:bg-slate-100 rounded-xl text-sm font-semibold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold shadow-sm cursor-pointer"
+                  >
+                    Add Member
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
@@ -1274,6 +1797,159 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
                   className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-semibold shadow-sm"
                 >
                   Record Settlement
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: Edit Group Expense with Advanced SplitEditor */}
+      {editingTx && activeGroup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">Edit Group Expense</h2>
+                <p className="text-xs text-slate-600">
+                  Group: <strong>{activeGroup.name}</strong> • Adjust title, amount, payer, or split details.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingTx(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditExpense} className="space-y-4 mt-3">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Expense Title / Description</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Scuba Diving, Dinner Bill, Villa Rental"
+                  value={editExpTitle}
+                  onChange={(e) => setEditExpTitle(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Total Amount ({user.currency})</label>
+                  <input
+                    type="number"
+                    required
+                    placeholder="e.g. 12000"
+                    value={editExpAmount}
+                    onChange={(e) => setEditExpAmount(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Expense Date</label>
+                  <input
+                    type="date"
+                    value={editExpDate}
+                    onChange={(e) => setEditExpDate(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Paid By</label>
+                  <select
+                    value={editExpPaidBy}
+                    onChange={(e) => setEditExpPaidBy(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
+                  >
+                    {activeGroup.members.map(m => (
+                      <option key={m.id} value={m.id}>{m.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Debit From Account</label>
+                  <select
+                    value={editExpAccountId}
+                    onChange={(e) => setEditExpAccountId(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
+                  >
+                    {accounts.map(a => (
+                      <option key={a.id} value={a.id}>
+                        {a.name} ({a.type === 'credit_card' ? `Credit Card • Due ${a.currency}${a.dueAmount}` : `Bank • Balance ${a.currency}${a.balance}`})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Advanced Split Editor for Edit Mode */}
+              <SplitEditor
+                members={activeGroup.members}
+                totalAmount={editTotalAmountNum}
+                currency={user.currency}
+                splitMode={editSplitMode}
+                selectedMemberIds={editSelectedMemberIds}
+                exactShares={editExactShares}
+                percentageShares={editPercentageShares}
+                onChangeSplitMode={setEditSplitMode}
+                onSplitModeChange={setEditSplitMode}
+                onToggleMember={toggleEditMemberSelection}
+                onSelectAll={() => setEditSelectedMemberIds(activeGroup.members.map(m => m.id))}
+                onDeselectAll={() => {
+                  if (activeGroup.members.length > 0) {
+                    setEditSelectedMemberIds([editExpPaidBy || activeGroup.members[0].id]);
+                  }
+                }}
+                onSelectAllMembers={() => setEditSelectedMemberIds(activeGroup.members.map(m => m.id))}
+                onDeselectAllMembers={() => {
+                  if (activeGroup.members.length > 0) {
+                    setEditSelectedMemberIds([editExpPaidBy || activeGroup.members[0].id]);
+                  }
+                }}
+                onChangeExactShares={setEditExactShares}
+                onExactShareChange={(memId, val) => {
+                  setEditExactShares(prev => ({ ...prev, [memId]: val }));
+                }}
+                onChangePercentageShares={setEditPercentageShares}
+                onPercentageShareChange={(memId, val) => {
+                  setEditPercentageShares(prev => ({ ...prev, [memId]: val }));
+                }}
+              />
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Notes / Description of edit</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Corrected final bill amount and excluded David"
+                  value={editExpNotes}
+                  onChange={(e) => setEditExpNotes(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setEditingTx(null)}
+                  className="px-4 py-2.5 text-slate-600 hover:bg-slate-100 rounded-xl text-sm font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editActiveCount === 0 || !editTotalAmountNum}
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold shadow-sm cursor-pointer"
+                >
+                  Save Changes
                 </button>
               </div>
             </form>

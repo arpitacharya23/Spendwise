@@ -282,10 +282,16 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
       return true;
     }).sort((a, b) => {
       if (sortBy === 'date-desc') {
-        return new Date(b.date).getTime() - new Date(a.date).getTime();
+        const timeA = new Date(a.updatedAt || a.date).getTime() || new Date(a.date).getTime() || 0;
+        const timeB = new Date(b.updatedAt || b.date).getTime() || new Date(b.date).getTime() || 0;
+        if (timeB !== timeA) return timeB - timeA;
+        return (b.id || '').localeCompare(a.id || '');
       }
       if (sortBy === 'date-asc') {
-        return new Date(a.date).getTime() - new Date(b.date).getTime();
+        const timeA = new Date(a.date).getTime() || 0;
+        const timeB = new Date(b.date).getTime() || 0;
+        if (timeA !== timeB) return timeA - timeB;
+        return (a.id || '').localeCompare(b.id || '');
       }
       if (sortBy === 'amount-desc') {
         return b.amount - a.amount;
@@ -346,37 +352,29 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
 
   return (
     <div className="space-y-6 pb-12 animate-fadeIn">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
-            Transactions Ledger
-          </h1>
-        </div>
-
-        <div className="flex items-center gap-2.5">
-          {onOpenCalendar && (
-            <button
-              onClick={onOpenCalendar}
-              id="btn-switch-to-calendar"
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-semibold transition shadow-xs"
-              title="Open monthly cashflow calendar"
-            >
-              <Calendar className="w-4 h-4 text-blue-600" />
-              <span>Calendar View</span>
-            </button>
-          )}
-
+      {/* Top Actions */}
+      <div className="flex items-center justify-end gap-2.5 flex-wrap">
+        {onOpenCalendar && (
           <button
-            onClick={handleExportCSV}
-            id="btn-export-transactions-csv"
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-semibold transition shadow-xs"
-            title="Download CSV of filtered results"
+            onClick={onOpenCalendar}
+            id="btn-switch-to-calendar"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-semibold transition shadow-xs"
+            title="Open monthly cashflow calendar"
           >
-            <Download className="w-4 h-4 text-slate-600" />
-            <span>Export CSV</span>
+            <Calendar className="w-4 h-4 text-blue-600" />
+            <span>Calendar View</span>
           </button>
-        </div>
+        )}
+
+        <button
+          onClick={handleExportCSV}
+          id="btn-export-transactions-csv"
+          className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-semibold transition shadow-xs"
+          title="Download CSV of filtered results"
+        >
+          <Download className="w-4 h-4 text-slate-600" />
+          <span>Export CSV</span>
+        </button>
       </div>
 
       {/* Filtered Financial Metrics Strip */}
@@ -914,7 +912,14 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-fadeIn">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-              <h2 className="text-lg font-bold text-slate-900">Edit Transaction</h2>
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Edit Transaction</h2>
+                {editingTx.groupId && (
+                  <p className="text-[11px] font-medium text-emerald-700 mt-0.5">
+                    Splitwise Group: {groups.find(g => g.id === editingTx.groupId)?.name || 'Group Expense'} (member shares will auto-adjust)
+                  </p>
+                )}
+              </div>
               <button onClick={() => setEditingTx(null)} className="p-1 text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
               </button>

@@ -61,6 +61,48 @@ export async function checkSupabaseHealth(): Promise<SupabaseHealthStatus> {
 // -----------------------------------------------------------------------------
 // PROFILES
 // -----------------------------------------------------------------------------
+export async function findUserByEmail(email: string): Promise<{ name: string; email: string; avatarColor?: string; isRegistered: boolean } | null> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized || !normalized.includes('@')) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('name, email, avatar_color')
+      .ilike('email', normalized)
+      .maybeSingle();
+
+    if (!error && data && data.name) {
+      return {
+        name: data.name,
+        email: data.email || normalized,
+        avatarColor: data.avatar_color || '#3B82F6',
+        isRegistered: true,
+      };
+    }
+
+    // Secondary fallback: check if id is stored as email
+    const { data: dataById, error: errById } = await supabase
+      .from('profiles')
+      .select('name, email, avatar_color')
+      .ilike('id', normalized)
+      .maybeSingle();
+
+    if (!errById && dataById && dataById.name) {
+      return {
+        name: dataById.name,
+        email: dataById.email || normalized,
+        avatarColor: dataById.avatar_color || '#3B82F6',
+        isRegistered: true,
+      };
+    }
+  } catch (err) {
+    console.warn('findUserByEmail lookup note:', err);
+  }
+
+  return null;
+}
+
 export async function getSupabaseProfile(email: string): Promise<UserProfile | null> {
   try {
     const { data, error } = await supabase
@@ -177,18 +219,31 @@ export async function deleteSupabaseCategory(categoryId: string): Promise<boolea
 }
 
 // -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // ACCOUNTS
 // -----------------------------------------------------------------------------
-export async function getSupabaseAccounts(): Promise<Account[] | null> {
+export async function getSupabaseAccounts(userEmail?: string): Promise<Account[] | null> {
   try {
-    const { data, error } = await supabase
+    const query = supabase
       .from('accounts')
       .select('*')
       .order('created_at', { ascending: true });
 
+    const { data, error } = await query;
+
     if (error || !data) return null;
 
-    return data.map((acc: any) => ({
+    let filteredData = data;
+    if (userEmail) {
+      const normalizedEmail = userEmail.trim().toLowerCase();
+      filteredData = data.filter((acc: any) => {
+        const ownerMatch = (acc.owner_email || '').trim().toLowerCase() === normalizedEmail;
+        const sharedMatch = Array.isArray(acc.shared_with) && acc.shared_with.some((p: any) => (p?.email || '').trim().toLowerCase() === normalizedEmail);
+        return ownerMatch || sharedMatch;
+      });
+    }
+
+    return filteredData.map((acc: any) => ({
       id: acc.id,
       name: acc.name,
       type: acc.type,
@@ -200,7 +255,7 @@ export async function getSupabaseAccounts(): Promise<Account[] | null> {
       accountNumberLast4: acc.account_number_last4 || undefined,
       bankName: acc.bank_name || undefined,
       color: acc.color || '#1E40AF',
-      ownerEmail: acc.owner_email,
+      ownerEmail: acc.owner_email || userEmail || '',
       sharedWith: Array.isArray(acc.shared_with) ? acc.shared_with : [],
       isArchived: acc.is_archived || false,
     }));
@@ -251,7 +306,7 @@ export async function deleteSupabaseAccount(accountId: string): Promise<boolean>
 // -----------------------------------------------------------------------------
 // TRANSACTIONS
 // -----------------------------------------------------------------------------
-export async function getSupabaseTransactions(): Promise<Transaction[] | null> {
+export async function getSupabaseTransactions(userEmail?: string): Promise<Transaction[] | null> {
   try {
     const { data, error } = await supabase
       .from('transactions')
@@ -260,7 +315,17 @@ export async function getSupabaseTransactions(): Promise<Transaction[] | null> {
 
     if (error || !data) return null;
 
-    return data.map((t: any) => ({
+    let filteredData = data;
+    if (userEmail) {
+      const normalizedEmail = userEmail.trim().toLowerCase();
+      filteredData = data.filter((t: any) => {
+        const creatorMatch = (t.created_by || '').trim().toLowerCase() === normalizedEmail;
+        const splitMatch = Array.isArray(t.split_details) && t.split_details.some((s: any) => (s?.memberEmail || '').trim().toLowerCase() === normalizedEmail);
+        return creatorMatch || splitMatch;
+      });
+    }
+
+    return filteredData.map((t: any) => ({
       id: t.id,
       date: t.date,
       title: t.title,
@@ -274,7 +339,7 @@ export async function getSupabaseTransactions(): Promise<Transaction[] | null> {
       groupId: t.group_id || undefined,
       paidByMemberId: t.paid_by_member_id || undefined,
       splitDetails: Array.isArray(t.split_details) ? t.split_details : undefined,
-      createdBy: t.created_by,
+      createdBy: t.created_by || userEmail || '',
       updatedAt: t.updated_at || new Date().toISOString(),
     }));
   } catch {
@@ -324,7 +389,7 @@ export async function deleteSupabaseTransaction(transactionId: string): Promise<
 // -----------------------------------------------------------------------------
 // LOANS & EMI
 // -----------------------------------------------------------------------------
-export async function getSupabaseLoans(): Promise<LoanEMI[] | null> {
+export async function getSupabaseLoans(userEmail?: string): Promise<LoanEMI[] | null> {
   try {
     const { data, error } = await supabase
       .from('loans')
@@ -333,7 +398,16 @@ export async function getSupabaseLoans(): Promise<LoanEMI[] | null> {
 
     if (error || !data) return null;
 
-    return data.map((l: any) => ({
+    let filteredData = data;
+    if (userEmail) {
+      const normalizedEmail = userEmail.trim().toLowerCase();
+      filteredData = data.filter((l: any) => {
+        const email = (l.user_email || l.owner_email || '').trim().toLowerCase();
+        return !email || email === normalizedEmail;
+      });
+    }
+
+    return filteredData.map((l: any) => ({
       id: l.id,
       name: l.name,
       lender: l.lender,
@@ -349,6 +423,8 @@ export async function getSupabaseLoans(): Promise<LoanEMI[] | null> {
       category: l.category || 'General',
       notes: l.notes || undefined,
       status: l.status || 'active',
+      userEmail: l.user_email || l.owner_email || userEmail || '',
+      ownerEmail: l.owner_email || l.user_email || userEmail || '',
     }));
   } catch {
     return null;
@@ -357,6 +433,7 @@ export async function getSupabaseLoans(): Promise<LoanEMI[] | null> {
 
 export async function saveSupabaseLoan(loan: LoanEMI): Promise<boolean> {
   try {
+    const userEmailToSave = loan.userEmail || loan.ownerEmail || '';
     const { error } = await supabase
       .from('loans')
       .upsert({
@@ -375,8 +452,22 @@ export async function saveSupabaseLoan(loan: LoanEMI): Promise<boolean> {
         category: loan.category,
         notes: loan.notes ?? null,
         status: loan.status,
+        user_email: userEmailToSave,
+        owner_email: userEmailToSave,
         updated_at: new Date().toISOString(),
       });
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+export async function deleteSupabaseLoan(loanId: string): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('loans')
+      .delete()
+      .eq('id', loanId);
     return !error;
   } catch {
     return false;
@@ -386,7 +477,7 @@ export async function saveSupabaseLoan(loan: LoanEMI): Promise<boolean> {
 // -----------------------------------------------------------------------------
 // GROUPS & ACTIVITY LOGS
 // -----------------------------------------------------------------------------
-export async function getSupabaseGroups(): Promise<Group[] | null> {
+export async function getSupabaseGroups(userEmail?: string): Promise<Group[] | null> {
   try {
     const { data, error } = await supabase
       .from('groups')
@@ -395,7 +486,17 @@ export async function getSupabaseGroups(): Promise<Group[] | null> {
 
     if (error || !data) return null;
 
-    return data.map((g: any) => ({
+    let filteredData = data;
+    if (userEmail) {
+      const normalizedEmail = userEmail.trim().toLowerCase();
+      filteredData = data.filter((g: any) => {
+        const creatorMatch = (g.created_by || '').trim().toLowerCase() === normalizedEmail;
+        const memberMatch = Array.isArray(g.members) && g.members.some((m: any) => (m?.email || '').trim().toLowerCase() === normalizedEmail);
+        return creatorMatch || memberMatch;
+      });
+    }
+
+    return filteredData.map((g: any) => ({
       id: g.id,
       name: g.name,
       description: g.description || '',
@@ -433,13 +534,31 @@ export async function saveSupabaseGroup(group: Group): Promise<boolean> {
   }
 }
 
-export async function getSupabaseActivityLogs(): Promise<GroupActivityLog[] | null> {
+export async function deleteSupabaseGroup(groupId: string): Promise<boolean> {
   try {
-    const { data, error } = await supabase
+    const { error } = await supabase
+      .from('groups')
+      .delete()
+      .eq('id', groupId);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+export async function getSupabaseActivityLogs(userGroupIds?: string[]): Promise<GroupActivityLog[] | null> {
+  try {
+    let query = supabase
       .from('group_activity_logs')
       .select('*')
       .order('timestamp', { ascending: false })
       .limit(100);
+
+    if (userGroupIds && userGroupIds.length > 0) {
+      query = query.in('group_id', userGroupIds);
+    }
+
+    const { data, error } = await query;
 
     if (error || !data) return null;
 
@@ -479,33 +598,155 @@ export async function saveSupabaseActivityLog(log: GroupActivityLog): Promise<bo
 }
 
 // -----------------------------------------------------------------------------
-// FRIENDS
+// FRIENDS (Bidirectional Sync)
 // -----------------------------------------------------------------------------
-export async function getSupabaseFriends(): Promise<Friend[] | null> {
+export async function getSupabaseFriends(userEmail?: string): Promise<Friend[] | null> {
   try {
-    const { data, error } = await supabase
+    const { data: allFriends, error } = await supabase
       .from('friends')
       .select('*')
       .order('name', { ascending: true });
 
-    if (error || !data) return null;
+    if (error || !allFriends) return null;
 
-    return data.map((f: any) => ({
-      id: f.id,
-      name: f.name,
-      email: f.email || '',
-      phone: f.phone || undefined,
-      avatarColor: f.avatar_color || '#10B981',
-      netBalance: Number(f.net_balance) || 0,
-      lastActivity: f.last_activity || new Date().toISOString().split('T')[0],
-    }));
-  } catch {
+    if (!userEmail) {
+      return allFriends.map((f: any) => ({
+        id: f.id,
+        name: f.name,
+        email: f.email || '',
+        phone: f.phone || undefined,
+        avatarColor: f.avatar_color || '#10B981',
+        netBalance: Number(f.net_balance) || 0,
+        lastActivity: f.last_activity || new Date().toISOString().split('T')[0],
+        userEmail: f.user_email || f.owner_email || '',
+        ownerEmail: f.owner_email || f.user_email || '',
+      }));
+    }
+
+    const normalizedEmail = userEmail.trim().toLowerCase();
+    const resultFriendsMap = new Map<string, Friend>();
+
+    // 1. Direct friends added by this user
+    const directRows = allFriends.filter((f: any) => {
+      const email = (f.user_email || f.owner_email || '').trim().toLowerCase();
+      return email === normalizedEmail;
+    });
+
+    for (const f of directRows) {
+      const frEmail = (f.email || '').trim().toLowerCase();
+      if (!frEmail) continue;
+      resultFriendsMap.set(frEmail, {
+        id: f.id,
+        name: f.name,
+        email: f.email || '',
+        phone: f.phone || undefined,
+        avatarColor: f.avatar_color || '#10B981',
+        netBalance: Number(f.net_balance) || 0,
+        lastActivity: f.last_activity || new Date().toISOString().split('T')[0],
+        userEmail: normalizedEmail,
+        ownerEmail: normalizedEmail,
+      });
+    }
+
+    // 2. Inbound friends (other registered users who added this user)
+    const inboundRows = allFriends.filter((f: any) => {
+      const targetEmail = (f.email || '').trim().toLowerCase();
+      const creatorEmail = (f.user_email || f.owner_email || '').trim().toLowerCase();
+      return targetEmail === normalizedEmail && creatorEmail !== normalizedEmail && creatorEmail.length > 0;
+    });
+
+    if (inboundRows.length > 0) {
+      // Fetch profiles of creator users who added this user to get their authentic names and avatar colors
+      const creatorEmails = Array.from(new Set(inboundRows.map((r: any) => (r.user_email || r.owner_email || '').trim().toLowerCase())));
+      let profileMap = new Map<string, { name: string; avatarColor: string; phone?: string }>();
+      
+      try {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('email, name, avatar_color, phone');
+        if (profiles) {
+          for (const p of profiles) {
+            if (p.email) {
+              profileMap.set(p.email.trim().toLowerCase(), {
+                name: p.name,
+                avatarColor: p.avatar_color || '#3B82F6',
+                phone: p.phone || undefined,
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Profile batch fetch warning:', err);
+      }
+
+      for (const inRow of inboundRows) {
+        const creatorEmail = (inRow.user_email || inRow.owner_email || '').trim().toLowerCase();
+        if (!creatorEmail) continue;
+
+        // If not already in result map, synthesize reciprocal friend
+        if (!resultFriendsMap.has(creatorEmail)) {
+          const profile = profileMap.get(creatorEmail);
+          const reciprocalName = profile?.name || inferNameFromEmailFallback(creatorEmail);
+          const reciprocalAvatar = profile?.avatarColor || '#3B82F6';
+          const reciprocalNetBalance = - (Number(inRow.net_balance) || 0);
+          const reciprocalId = `fr-recip-${normalizedEmail.replace(/[^a-z0-9]/g, '_')}_${creatorEmail.replace(/[^a-z0-9]/g, '_')}`;
+
+          const reciprocalFriend: Friend = {
+            id: reciprocalId,
+            name: reciprocalName,
+            email: creatorEmail,
+            phone: profile?.phone || undefined,
+            avatarColor: reciprocalAvatar,
+            netBalance: reciprocalNetBalance,
+            lastActivity: inRow.last_activity || new Date().toISOString().split('T')[0],
+            userEmail: normalizedEmail,
+            ownerEmail: normalizedEmail,
+          };
+
+          resultFriendsMap.set(creatorEmail, reciprocalFriend);
+
+          // Asynchronously persist reciprocal record in database
+          supabase
+            .from('friends')
+            .upsert({
+              id: reciprocalId,
+              name: reciprocalName,
+              email: creatorEmail,
+              phone: profile?.phone ?? null,
+              avatar_color: reciprocalAvatar,
+              net_balance: reciprocalNetBalance,
+              last_activity: reciprocalFriend.lastActivity,
+              user_email: normalizedEmail,
+              owner_email: normalizedEmail,
+            })
+            .then(({ error }) => {
+              if (error) console.warn('Reciprocal friend upsert note:', error.message);
+            });
+        }
+      }
+    }
+
+    return Array.from(resultFriendsMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  } catch (err) {
+    console.error('getSupabaseFriends error:', err);
     return null;
   }
 }
 
-export async function saveSupabaseFriend(friend: Friend): Promise<boolean> {
+function inferNameFromEmailFallback(email: string): string {
+  const username = email.split('@')[0] || 'Friend';
+  const cleaned = username.replace(/[0-9_.-]+$/g, '').replace(/^[0-9_.-]+/g, '');
+  const parts = (cleaned || username).split(/[._\-+]+/).filter(Boolean);
+  if (parts.length === 0) return 'Friend';
+  return parts.map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(' ');
+}
+
+export async function saveSupabaseFriend(friend: Friend, currentUser?: Partial<UserProfile>): Promise<boolean> {
   try {
+    const userEmailToSave = (friend.userEmail || friend.ownerEmail || currentUser?.email || '').trim().toLowerCase();
+    const targetFriendEmail = (friend.email || '').trim().toLowerCase();
+
+    // 1. Save primary friend record for userEmailToSave
     const { error } = await supabase
       .from('friends')
       .upsert({
@@ -516,7 +757,91 @@ export async function saveSupabaseFriend(friend: Friend): Promise<boolean> {
         avatar_color: friend.avatarColor,
         net_balance: friend.netBalance,
         last_activity: friend.lastActivity,
+        user_email: userEmailToSave,
+        owner_email: userEmailToSave,
       });
+
+    if (error) {
+      console.warn('saveSupabaseFriend primary error:', error);
+      return false;
+    }
+
+    // 2. Bidirectional / Reciprocal Sync:
+    // If target friend has a valid email different from current user, create/update reciprocal record on their account
+    if (targetFriendEmail && userEmailToSave && targetFriendEmail !== userEmailToSave) {
+      try {
+        const reciprocalId = `fr-recip-${targetFriendEmail.replace(/[^a-z0-9]/g, '_')}_${userEmailToSave.replace(/[^a-z0-9]/g, '_')}`;
+        
+        let creatorName = currentUser?.name;
+        let creatorAvatar = currentUser?.avatarColor || '#3B82F6';
+        let creatorPhone = currentUser?.phone;
+
+        // If creator details are missing, look up profile from DB
+        if (!creatorName) {
+          const { data: creatorProfile } = await supabase
+            .from('profiles')
+            .select('name, avatar_color, phone')
+            .ilike('email', userEmailToSave)
+            .maybeSingle();
+
+          if (creatorProfile && creatorProfile.name) {
+            creatorName = creatorProfile.name;
+            creatorAvatar = creatorProfile.avatar_color || creatorAvatar;
+            creatorPhone = creatorProfile.phone || creatorPhone;
+          }
+        }
+
+        const finalCreatorName = creatorName || inferNameFromEmailFallback(userEmailToSave);
+        const reciprocalNetBalance = - (Number(friend.netBalance) || 0);
+
+        await supabase
+          .from('friends')
+          .upsert({
+            id: reciprocalId,
+            name: finalCreatorName,
+            email: userEmailToSave,
+            phone: creatorPhone ?? null,
+            avatar_color: creatorAvatar,
+            net_balance: reciprocalNetBalance,
+            last_activity: friend.lastActivity || new Date().toISOString().split('T')[0],
+            user_email: targetFriendEmail,
+            owner_email: targetFriendEmail,
+          });
+      } catch (recipErr) {
+        console.warn('Reciprocal friend sync warning:', recipErr);
+      }
+    }
+
+    return true;
+  } catch (err) {
+    console.error('saveSupabaseFriend unexpected error:', err);
+    return false;
+  }
+}
+
+export async function deleteSupabaseFriend(
+  friendId: string,
+  userEmail?: string,
+  friendEmail?: string
+): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('friends')
+      .delete()
+      .eq('id', friendId);
+
+    // Also clean up reverse reciprocal record if emails are provided
+    if (userEmail && friendEmail) {
+      const normUser = userEmail.trim().toLowerCase();
+      const normFriend = friendEmail.trim().toLowerCase();
+      const reciprocalId = `fr-recip-${normFriend.replace(/[^a-z0-9]/g, '_')}_${normUser.replace(/[^a-z0-9]/g, '_')}`;
+      
+      await supabase
+        .from('friends')
+        .delete()
+        .eq('id', reciprocalId);
+    }
+
     return !error;
   } catch {
     return false;
@@ -592,6 +917,8 @@ export async function seedSupabaseInitialData(user: UserProfile): Promise<{ succ
       nextDueDate: '2026-09-05',
       category: 'Electronics',
       status: 'active',
+      userEmail: user.email,
+      ownerEmail: user.email,
     };
     await saveSupabaseLoan(sampleLoan);
 
@@ -616,9 +943,9 @@ export async function seedSupabaseInitialData(user: UserProfile): Promise<{ succ
 
     // 5. Sample Friends
     const sampleFriends: Friend[] = [
-      { id: 'fr-1', name: 'Rohan Sharma', email: 'rohan@example.com', avatarColor: '#10B981', netBalance: 2400, lastActivity: '2026-08-20' },
-      { id: 'fr-2', name: 'Pooja Verma', email: 'pooja@example.com', avatarColor: '#EC4899', netBalance: -1200, lastActivity: '2026-08-18' },
-      { id: 'fr-3', name: 'Kabir Mehta', email: 'kabir@example.com', avatarColor: '#F59E0B', netBalance: 0, lastActivity: '2026-08-15' }
+      { id: 'fr-1', name: 'Rohan Sharma', email: 'rohan@example.com', avatarColor: '#10B981', netBalance: 2400, lastActivity: '2026-08-20', userEmail: user.email, ownerEmail: user.email },
+      { id: 'fr-2', name: 'Pooja Verma', email: 'pooja@example.com', avatarColor: '#EC4899', netBalance: -1200, lastActivity: '2026-08-18', userEmail: user.email, ownerEmail: user.email },
+      { id: 'fr-3', name: 'Kabir Mehta', email: 'kabir@example.com', avatarColor: '#F59E0B', netBalance: 0, lastActivity: '2026-08-15', userEmail: user.email, ownerEmail: user.email }
     ];
     for (const fr of sampleFriends) {
       await saveSupabaseFriend(fr);

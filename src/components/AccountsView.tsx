@@ -13,13 +13,16 @@ import {
   DollarSign,
   AlertCircle,
   Eye,
-  Edit3
+  Edit3,
+  Users
 } from 'lucide-react';
 import { Account, AccountPermission, UserProfile } from '../types';
 
 interface AccountsViewProps {
   user: UserProfile;
   accounts: Account[];
+  initialOpenAddModal?: boolean;
+  onCloseInitialOpenAddModal?: () => void;
   onAddAccount: (account: Partial<Account>) => void;
   onEditAccount?: (accountId: string, updatedData: Partial<Account>) => void;
   onDeleteAccount?: (accountId: string) => void;
@@ -31,6 +34,8 @@ interface AccountsViewProps {
 export const AccountsView: React.FC<AccountsViewProps> = ({
   user,
   accounts,
+  initialOpenAddModal = false,
+  onCloseInitialOpenAddModal,
   onAddAccount,
   onEditAccount,
   onDeleteAccount,
@@ -41,7 +46,16 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   const [activeTab, setActiveTab] = useState<'all' | 'bank' | 'credit_card'>('all');
   
   // Modals state
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(initialOpenAddModal);
+
+  React.useEffect(() => {
+    if (initialOpenAddModal) {
+      setIsAddModalOpen(true);
+      if (onCloseInitialOpenAddModal) {
+        onCloseInitialOpenAddModal();
+      }
+    }
+  }, [initialOpenAddModal, onCloseInitialOpenAddModal]);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [deletingAccountId, setDeletingAccountId] = useState<string | null>(null);
   const [sharingAccount, setSharingAccount] = useState<Account | null>(null);
@@ -206,32 +220,24 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
   return (
     <div className="space-y-6 pb-12">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
-            Accounts
-          </h1>
-        </div>
+      {/* Top Action Toolbar */}
+      <div className="flex items-center justify-end gap-3 flex-wrap">
+        <button
+          onClick={() => setIsTransferModalOpen(true)}
+          className="flex items-center gap-2 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-semibold text-sm transition"
+        >
+          <ArrowRightLeft className="w-4 h-4 text-blue-600" />
+          <span>Transfer Funds</span>
+        </button>
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setIsTransferModalOpen(true)}
-            className="flex items-center gap-2 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-semibold text-sm transition"
-          >
-            <ArrowRightLeft className="w-4 h-4 text-blue-600" />
-            <span>Transfer Funds</span>
-          </button>
-
-          <button
-            onClick={() => setIsAddModalOpen(true)}
-            id="btn-add-account"
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm shadow-sm transition active:scale-95"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Account / Card</span>
-          </button>
-        </div>
+        <button
+          onClick={() => setIsAddModalOpen(true)}
+          id="btn-add-account"
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm shadow-sm transition active:scale-95"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Add Account / Card</span>
+        </button>
       </div>
 
       {/* Tabs */}
@@ -375,30 +381,19 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                       <div className="text-2xl font-extrabold text-slate-900 mt-1 privacy-value">
                         {acc.currency}{acc.balance.toLocaleString()}
                       </div>
-                      <div className="mt-2 pt-2 border-t border-slate-200 text-xs text-slate-700">
-                        Status: <span className="text-emerald-700 font-medium">Active & Synchronized</span>
-                      </div>
                     </div>
                   )}
                 </div>
 
-                {/* Shared Permission summary */}
-                <div className="mt-4 flex items-center justify-between text-xs">
-                  <div className="flex items-center space-x-1.5 text-slate-700">
-                    <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>
-                      {acc.sharedWith && acc.sharedWith.length > 0
-                        ? `Shared with ${acc.sharedWith.length} person(s)`
-                        : 'Private (Owner only)'}
+                {/* Shared Friends (Only shown if account is shared) */}
+                {acc.sharedWith && acc.sharedWith.length > 0 && (
+                  <div className="mt-3.5 flex items-center gap-2 text-xs text-indigo-700 bg-indigo-50/80 px-3 py-2 rounded-xl border border-indigo-100/90">
+                    <Users className="w-3.5 h-3.5 flex-shrink-0 text-indigo-600" />
+                    <span className="truncate">
+                      Shared with: <strong className="font-semibold text-indigo-900">{acc.sharedWith.map(p => p.name || p.email.split('@')[0]).join(', ')}</strong>
                     </span>
                   </div>
-                  <button
-                    onClick={() => setSharingAccount(acc)}
-                    className="text-blue-600 hover:text-blue-700 font-medium text-xs hover:underline"
-                  >
-                    Edit access
-                  </button>
-                </div>
+                )}
               </div>
 
               {/* Bottom Actions */}

@@ -67,6 +67,8 @@ CREATE TABLE IF NOT EXISTS public.loans (
     category TEXT NOT NULL DEFAULT 'General',
     notes TEXT DEFAULT NULL,
     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed', 'foreclosed')),
+    user_email TEXT NOT NULL DEFAULT '',
+    owner_email TEXT DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -106,8 +108,16 @@ CREATE TABLE IF NOT EXISTS public.friends (
     avatar_color TEXT NOT NULL DEFAULT '#10B981',
     net_balance NUMERIC NOT NULL DEFAULT 0,
     last_activity TEXT NOT NULL DEFAULT CURRENT_DATE::TEXT,
+    user_email TEXT NOT NULL DEFAULT '',
+    owner_email TEXT DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Migration support for existing databases
+ALTER TABLE public.loans ADD COLUMN IF NOT EXISTS user_email TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.loans ADD COLUMN IF NOT EXISTS owner_email TEXT DEFAULT '';
+ALTER TABLE public.friends ADD COLUMN IF NOT EXISTS user_email TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.friends ADD COLUMN IF NOT EXISTS owner_email TEXT DEFAULT '';
 
 -- 9. Transactions Ledger Table
 CREATE TABLE IF NOT EXISTS public.transactions (

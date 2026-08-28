@@ -10,7 +10,8 @@ import {
   CreditCard,
   Building2,
   TrendingDown,
-  Sparkles
+  Sparkles,
+  Trash2
 } from 'lucide-react';
 import { Account, LoanEMI, UserProfile } from '../types';
 
@@ -20,6 +21,7 @@ interface LoansViewProps {
   accounts: Account[];
   onAddLoan: (loan: Partial<LoanEMI>) => void;
   onPayEMI: (emi: LoanEMI, fromAccountId: string, amount: number) => void;
+  onDeleteLoan?: (loanId: string) => void;
 }
 
 export const LoansView: React.FC<LoansViewProps> = ({
@@ -28,6 +30,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
   accounts,
   onAddLoan,
   onPayEMI,
+  onDeleteLoan,
 }) => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [payingLoan, setPayingLoan] = useState<LoanEMI | null>(null);
@@ -102,14 +105,8 @@ export const LoansView: React.FC<LoansViewProps> = ({
 
   return (
     <div className="space-y-6 pb-12">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
-            Loans
-          </h1>
-        </div>
-
+      {/* Top Action Toolbar */}
+      <div className="flex items-center justify-end gap-3 flex-wrap">
         <button
           onClick={() => setIsAddModalOpen(true)}
           id="btn-add-loan"
@@ -243,18 +240,34 @@ export const LoansView: React.FC<LoansViewProps> = ({
                 </div>
               </div>
 
-              {/* Action Button */}
-              <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between">
-                <span className="text-xs text-slate-700">
-                  {loan.totalTenureMonths - loan.paidTenureMonths} installments left
-                </span>
+              {/* Action Buttons */}
+              <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  {onDeleteLoan && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm(`Are you sure you want to remove "${loan.name}"?`)) {
+                          onDeleteLoan(loan.id);
+                        }
+                      }}
+                      className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer"
+                      title="Delete Loan"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                  <span className="text-xs text-slate-700">
+                    {loan.totalTenureMonths - loan.paidTenureMonths} installments left
+                  </span>
+                </div>
                 <button
                   onClick={() => {
                     setPayingLoan(loan);
                     setSelectedBankId(loan.linkedAccountId);
                     setCustomPayAmount(String(loan.monthlyEMI));
                   }}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-sm transition active:scale-95"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-sm transition active:scale-95 cursor-pointer"
                 >
                   Pay Monthly Installment
                 </button>

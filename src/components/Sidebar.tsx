@@ -15,7 +15,8 @@ import {
   X, 
   TrendingUp, 
   Palette, 
-  Target 
+  Target,
+  Sparkles 
 } from 'lucide-react';
 import { UserProfile } from '../types';
 
@@ -45,6 +46,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'transactions', label: 'Transactions', icon: Receipt },
+    { id: 'rules', label: 'Rules', icon: Sparkles },
     { id: 'budgets', label: 'Budgets', icon: Target },
     { id: 'calendar', label: 'Calendar', icon: Calendar },
     { id: 'categories', label: 'Categories', icon: Palette },

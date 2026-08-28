@@ -67,6 +67,8 @@ export interface LoanEMI {
   category: string;
   notes?: string;
   status: 'active' | 'completed' | 'foreclosed';
+  userEmail: string; // Linked to the user profile
+  ownerEmail?: string;
 }
 
 export interface GroupMember {
@@ -124,6 +126,8 @@ export interface Friend {
   avatarColor: string;
   netBalance: number; // positive: they owe me, negative: I owe them
   lastActivity: string;
+  userEmail: string; // Linked to the user who added this friend
+  ownerEmail?: string;
 }
 
 export interface Category {
@@ -140,6 +144,7 @@ export interface UserProfile {
   email: string;
   currency: string;
   avatarColor: string;
+  phone?: string;
   monthlyBudget?: number;
 }
 
@@ -164,4 +169,23 @@ export interface TransactionRule {
   isEnabled: boolean;
   createdAt: string;
   matchCount?: number;
+}
+
+export type DashboardCardId = 
+  | 'kpi_metrics'
+  | 'account_pills'
+  | 'credit_card_dues'
+  | 'loans_emi'
+  | 'splitwise_groups'
+  | 'friends_balances'
+  | 'category_breakdown'
+  | 'recent_transactions';
+
+export interface DashboardCardConfig {
+  id: DashboardCardId;
+  name: string;
+  description: string;
+  category: 'overview' | 'accounts' | 'debt' | 'social' | 'activity';
+  isEnabled: boolean;
+  order: number;
 }

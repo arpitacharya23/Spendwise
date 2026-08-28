@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { Plus, Receipt, Landmark, Users2, DollarSign, Calendar, X, AlertCircle } from 'lucide-react';
-import { Account, Category, Group, LoanEMI, Transaction, UserProfile } from '../types';
+import React, { useState, useEffect } from 'react';
+import { Plus, Receipt, Landmark, Users2, DollarSign, Calendar, X, AlertCircle, Sparkles, Check } from 'lucide-react';
+import { Account, Category, Group, LoanEMI, Transaction, UserProfile, TransactionRule } from '../types';
 import { CategoryIcon } from './CategoryIcon';
+import { findMatchingRule } from '../lib/ruleEngine';
 
 interface AddExpenseModalProps {
   isOpen: boolean;
@@ -11,8 +12,10 @@ interface AddExpenseModalProps {
   categories: Category[];
   loans: LoanEMI[];
   groups: Group[];
+  rules?: TransactionRule[];
   initialDate?: string;
   onSaveExpense: (tx: Partial<Transaction>) => void;
+  onIncrementRuleMatch?: (ruleId: string) => void;
 }
 
 export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
@@ -23,8 +26,10 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
   categories,
   loans,
   groups,
+  rules = [],
   initialDate,
   onSaveExpense,
+  onIncrementRuleMatch,
 }) => {
   if (!isOpen) return null;
 
@@ -38,9 +43,59 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
   const [linkedEmiId, setLinkedEmiId] = useState('');
   const [linkedGroupId, setLinkedGroupId] = useState('');
 
+  // Active matched rule state
+  const [matchedRuleInfo, setMatchedRuleInfo] = useState<{
+    ruleName: string;
+    matchedKeyword: string;
+    categoryName: string;
+    ruleId: string;
+  } | null>(null);
+  const [hasUserManuallyChangedCategory, setHasUserManuallyChangedCategory] = useState(false);
+
+  // Real-time title change & rule detection
+  const handleTitleChange = (newTitle: string) => {
+    setTitle(newTitle);
+
+    if (!newTitle.trim() || type === 'emi_payment' || rules.length === 0) {
+      setMatchedRuleInfo(null);
+      return;
+    }
+
+    const match = findMatchingRule(newTitle, rules);
+    if (match) {
+      const targetCat = categories.find(c => c.id === match.suggestedCategoryId);
+      if (!hasUserManuallyChangedCategory) {
+        setCategoryId(match.suggestedCategoryId);
+        if (match.suggestedAccountId) {
+          setAccountId(match.suggestedAccountId);
+        }
+        if (match.suggestedType) {
+          setType(match.suggestedType);
+        }
+      }
+      setMatchedRuleInfo({
+        ruleName: match.rule.name,
+        matchedKeyword: match.matchedKeyword,
+        categoryName: targetCat?.name || 'Category',
+        ruleId: match.rule.id,
+      });
+    } else {
+      setMatchedRuleInfo(null);
+    }
+  };
+
+  const handleCategorySelect = (newCatId: string) => {
+    setCategoryId(newCatId);
+    setHasUserManuallyChangedCategory(true);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !amount) return;
+
+    if (matchedRuleInfo && onIncrementRuleMatch) {
+      onIncrementRuleMatch(matchedRuleInfo.ruleId);
+    }
 
     onSaveExpense({
       title,
@@ -100,11 +155,27 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             <input
               type="text"
               required
-              placeholder="e.g. Grocery restock, Dinner with colleagues, Salary"
+              placeholder="e.g. Starbucks coffee, Uber ride, Amazon order, Salary"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => handleTitleChange(e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+
+            {/* Smart Rule Matched Banner */}
+            {matchedRuleInfo && (
+              <div className="mt-2 p-2.5 bg-blue-50/80 border border-blue-200/90 rounded-xl flex items-center justify-between text-xs animate-fadeIn">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-5 h-5 rounded-lg bg-blue-600 text-white flex items-center justify-center flex-shrink-0">
+                    <Sparkles className="w-3 h-3" />
+                  </div>
+                  <div className="truncate">
+                    <span className="font-bold text-blue-900">Rule Matched: </span>
+                    <span className="text-blue-800">Auto-categorized as <strong>{matchedRuleInfo.categoryName}</strong></span>
+                    <span className="text-blue-600 text-[10px] ml-1">("{matchedRuleInfo.matchedKeyword}")</span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -182,7 +253,7 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
               </div>
               <select
                 value={categoryId}
-                onChange={(e) => setCategoryId(e.target.value)}
+                onChange={(e) => handleCategorySelect(e.target.value)}
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
               >
                 {categories

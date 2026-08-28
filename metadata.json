@@ -1,6 +1,6 @@
 {
   "name": "SpendWise - Expense Tracker & Splitwise",
-  "description": "Supabase PostgreSQL powered Expense Tracker & Splitwise Web App with Bank & Credit Card tracking, EMI/Loan linking, shared account access, WhatsApp-style group activity logs, Category Manager with custom color palettes, and monthly cashflow calendar with soft category day washes.",
+  "description": "Comprehensive personal finance & Splitwise platform featuring customizable dashboard layout management, keyword-based rule engine with CSV import & export for automated transaction categorization, credit card & loan EMI tracking, and budget analytics.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

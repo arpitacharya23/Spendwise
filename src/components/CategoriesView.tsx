@@ -276,36 +276,27 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
 
   return (
     <div className="space-y-6 pb-12 animate-fadeIn">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2.5">
-            <Palette className="w-6 h-6 text-blue-600" />
-            Category Manager & Palette
-          </h1>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {onResetCategories && (
-            <button
-              onClick={onResetCategories}
-              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition flex items-center gap-1.5"
-              title="Reset default categories"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Defaults</span>
-            </button>
-          )}
-
+      {/* Top Action Toolbar */}
+      <div className="flex items-center justify-end gap-2 flex-wrap">
+        {onResetCategories && (
           <button
-            onClick={() => handleOpenAddModal()}
-            id="btn-add-category-main"
-            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition active:scale-95"
+            onClick={onResetCategories}
+            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition flex items-center gap-1.5"
+            title="Reset default categories"
           >
-            <Plus className="w-4 h-4" />
-            <span>Add Category</span>
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Defaults</span>
           </button>
-        </div>
+        )}
+
+        <button
+          onClick={() => handleOpenAddModal()}
+          id="btn-add-category-main"
+          className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition active:scale-95"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Add Category</span>
+        </button>
       </div>
 
       {/* KPI Metric Strip */}

@@ -114,6 +114,16 @@ export const SupabaseStudioView: React.FC<SupabaseStudioViewProps> = ({ user, on
       name: 'friends',
       desc: 'Direct peer-to-peer friend relationships with running net balances (owed / to-receive).',
       columns: ['id (text pk)', 'name (text)', 'email (text)', 'phone (text)', 'net_balance (numeric)', 'avatar_color (text)', 'last_activity (text)'],
+    },
+    {
+      name: 'rules',
+      desc: 'Automation rules engine with keyword matching, category assignments, and account routing.',
+      columns: ['id (text pk)', 'name (text)', 'keywords (jsonb)', 'match_type (text)', 'category_id (text fk)', 'account_id (text fk)', 'is_active (bool)'],
+    },
+    {
+      name: 'budgets',
+      desc: 'Monthly budgets set per category and month/year for granular spending targets.',
+      columns: ['id (text pk)', 'user_email (text)', 'category_id (text fk)', 'month (int)', 'year (int)', 'limit_amount (numeric)'],
     }
   ];
 

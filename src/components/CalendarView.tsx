@@ -328,66 +328,53 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         />
       ) : (
         <>
-          {/* Header with Navigation */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2.5">
-                <CalendarIcon className="w-6 h-6 text-blue-600" />
-                Monthly Cashflow Calendar
-              </h1>
-              <p className="text-xs text-slate-600 mt-0.5">
-                Click any date to inspect details, or click the selected date again to open full Day View
-              </p>
-            </div>
+          {/* Top Month Selector Controls */}
+          <div className="flex items-center justify-end gap-2 flex-wrap">
+            <button
+              onClick={handleJumpToToday}
+              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition shadow-xs"
+            >
+              Today
+            </button>
 
-            {/* Month Selector Controls */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 shadow-xs">
               <button
-                onClick={handleJumpToToday}
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition shadow-xs"
+                onClick={handlePrevMonth}
+                className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition"
+                title="Previous Month"
               >
-                Today
+                <ChevronLeft className="w-4 h-4" />
               </button>
-
-              <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 shadow-xs">
-                <button
-                  onClick={handlePrevMonth}
-                  className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition"
-                  title="Previous Month"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <span className="px-3 text-xs font-bold text-slate-800 min-w-[120px] text-center">
-                  {monthName} {currentYear}
-                </span>
-                <button
-                  onClick={handleNextMonth}
-                  className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition"
-                  title="Next Month"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-
-              {onOpenCategories && (
-                <button
-                  onClick={onOpenCategories}
-                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition flex items-center gap-1.5"
-                  title="Manage categories and colors"
-                >
-                  <Palette className="w-3.5 h-3.5 text-slate-600" />
-                  <span>Palette</span>
-                </button>
-              )}
-
+              <span className="px-3 text-xs font-bold text-slate-800 min-w-[120px] text-center">
+                {monthName} {currentYear}
+              </span>
               <button
-                onClick={() => onOpenAddExpense(selectedDate || todayStr)}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition active:scale-95 ml-1"
+                onClick={handleNextMonth}
+                className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition"
+                title="Next Month"
               >
-                <Plus className="w-4 h-4" />
-                <span>Add Entry</span>
+                <ChevronRight className="w-4 h-4" />
               </button>
             </div>
+
+            {onOpenCategories && (
+              <button
+                onClick={onOpenCategories}
+                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition flex items-center gap-1.5"
+                title="Manage categories and colors"
+              >
+                <Palette className="w-3.5 h-3.5 text-slate-600" />
+                <span>Palette</span>
+              </button>
+            )}
+
+            <button
+              onClick={() => onOpenAddExpense(selectedDate || todayStr)}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition active:scale-95 ml-1"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Entry</span>
+            </button>
           </div>
 
           {/* Monthly KPI Strip */}

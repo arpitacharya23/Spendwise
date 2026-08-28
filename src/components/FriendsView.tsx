@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   UserCheck, 
   UserPlus, 
@@ -11,9 +11,16 @@ import {
   HandCoins,
   Sparkles,
   Check,
-  AlertCircle
+  AlertCircle,
+  Trash2,
+  Loader2,
+  User,
+  UserX,
+  Edit2,
+  ShieldCheck
 } from 'lucide-react';
 import { Account, Friend, Transaction, UserProfile } from '../types';
+import { findUserByEmail } from '../lib/supabaseService';
 
 interface FriendsViewProps {
   user: UserProfile;
@@ -22,6 +29,7 @@ interface FriendsViewProps {
   accounts: Account[];
   onAddFriend: (friend: Partial<Friend>) => void;
   onSettleFriendDebt: (friendId: string, amount: number, accountId: string, direction: 'they_paid_me' | 'i_paid_them') => void;
+  onDeleteFriend?: (friendId: string) => void;
 }
 
 // Helper to format clean display name from email
@@ -31,13 +39,24 @@ function inferNameFromEmail(email: string): string {
   
   // Remove numbers and special characters from start/end
   const cleaned = username.replace(/[0-9_.-]+$/g, '').replace(/^[0-9_.-]+/g, '');
-  const parts = (cleaned || username).split(/[._-]+/).filter(Boolean);
+  const parts = (cleaned || username).split(/[._\-+]+/).filter(Boolean);
   
   if (parts.length === 0) return 'Friend';
   
   return parts
     .map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
     .join(' ');
+}
+
+interface SearchUserResult {
+  email: string;
+  name: string;
+  avatarColor: string;
+  phone?: string;
+  isRegistered?: boolean;
+  isAlreadyFriend?: boolean;
+  isSelf?: boolean;
+  existingFriend?: Friend;
 }
 
 export const FriendsView: React.FC<FriendsViewProps> = ({
@@ -47,6 +66,7 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
   accounts,
   onAddFriend,
   onSettleFriendDebt,
+  onDeleteFriend,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedFriend, setSelectedFriend] = useState<Friend | null>(friends[0] || null);
@@ -55,11 +75,15 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
   const [isAddFriendModalOpen, setIsAddFriendModalOpen] = useState(false);
   const [isSettleModalOpen, setIsSettleModalOpen] = useState(false);
 
-  // Add / Find Friend Form State
+  // Search by email state in Modal
   const [emailQuery, setEmailQuery] = useState('');
-  const [friendName, setFriendName] = useState('');
-  const [friendPhone, setFriendPhone] = useState('');
-  const [friendColor, setFriendColor] = useState('#10B981');
+  const [isSearchingUser, setIsSearchingUser] = useState(false);
+  const [searchResult, setSearchResult] = useState<SearchUserResult | null>(null);
+  const [searchNotFound, setSearchNotFound] = useState<string | null>(null);
+  const [isEditingResolvedName, setIsEditingResolvedName] = useState(false);
+  const [customResolvedName, setCustomResolvedName] = useState('');
+  const [customPhone, setCustomPhone] = useState('');
+  const [customColor, setCustomColor] = useState('#10B981');
   const [addSuccessMessage, setAddSuccessMessage] = useState<string | null>(null);
 
   // Settle Form
@@ -72,45 +96,110 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
   const totalIOwe = friends.reduce((sum, f) => f.netBalance < 0 ? sum + Math.abs(f.netBalance) : sum, 0);
 
   const trimmedSearch = searchTerm.trim();
-  const isSearchAnEmail = trimmedSearch.includes('@');
+  const isSearchAnEmail = trimmedSearch.includes('@') && trimmedSearch.includes('.');
   
   const filteredFriends = friends.filter(f => 
     f.name.toLowerCase().includes(trimmedSearch.toLowerCase()) || 
     f.email.toLowerCase().includes(trimmedSearch.toLowerCase())
   );
 
-  const exactEmailFriendMatch = friends.find(
-    f => f.email.toLowerCase() === (emailQuery.trim().toLowerCase() || trimmedSearch.toLowerCase())
-  );
+  // Perform search lookup by email - ONLY returns registered users
+  const executeEmailLookup = async (emailToSearch: string) => {
+    const norm = emailToSearch.trim().toLowerCase();
+    if (!norm || !norm.includes('@')) {
+      setSearchResult(null);
+      setSearchNotFound(null);
+      return;
+    }
+
+    setIsSearchingUser(true);
+    setSearchNotFound(null);
+    setSearchResult(null);
+
+    // 1. Check if it's the user's own email
+    if (user.email && norm === user.email.trim().toLowerCase()) {
+      setSearchResult({
+        email: norm,
+        name: user.name,
+        avatarColor: user.avatarColor || '#3B82F6',
+        isSelf: true,
+      });
+      setIsSearchingUser(false);
+      return;
+    }
+
+    // 2. Check if already a friend in current local list
+    const existing = friends.find(f => f.email.toLowerCase() === norm);
+    if (existing) {
+      setSearchResult({
+        email: existing.email,
+        name: existing.name,
+        avatarColor: existing.avatarColor,
+        phone: existing.phone,
+        isAlreadyFriend: true,
+        existingFriend: existing,
+      });
+      setIsSearchingUser(false);
+      return;
+    }
+
+    // 3. Query Supabase profiles table for real registered user
+    try {
+      const dbProfile = await findUserByEmail(norm);
+      if (dbProfile && dbProfile.name) {
+        setSearchResult({
+          email: dbProfile.email,
+          name: dbProfile.name,
+          avatarColor: dbProfile.avatarColor || '#3B82F6',
+          isRegistered: true,
+        });
+        setCustomResolvedName(dbProfile.name);
+        setCustomColor(dbProfile.avatarColor || '#3B82F6');
+        setIsSearchingUser(false);
+        return;
+      }
+    } catch (err) {
+      console.warn('Profile search error:', err);
+    }
+
+    // 4. No registered user found
+    setSearchResult(null);
+    setSearchNotFound(norm);
+    setIsSearchingUser(false);
+  };
+
+  // Debounce search when typing email in modal
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (emailQuery.includes('@') && emailQuery.includes('.')) {
+        executeEmailLookup(emailQuery);
+      } else if (!emailQuery.trim()) {
+        setSearchResult(null);
+        setSearchNotFound(null);
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [emailQuery]);
 
   const handleOpenAddModalWithEmail = (initialEmail: string = '') => {
     setEmailQuery(initialEmail);
-    if (initialEmail) {
-      setFriendName(inferNameFromEmail(initialEmail));
-    } else {
-      setFriendName('');
-    }
-    setFriendPhone('');
-    setFriendColor('#10B981');
+    setSearchResult(null);
+    setSearchNotFound(null);
+    setIsEditingResolvedName(false);
+    setCustomPhone('');
+    setCustomColor('#10B981');
     setAddSuccessMessage(null);
     setIsAddFriendModalOpen(true);
-  };
-
-  const handleEmailInputChange = (val: string) => {
-    setEmailQuery(val);
-    // If the name hasn't been manually set or matches previous auto-inferred, auto-infer from new email
-    if (val.includes('@')) {
-      const suggested = inferNameFromEmail(val);
-      if (!friendName || friendName === 'Friend') {
-        setFriendName(suggested);
-      }
+    if (initialEmail && initialEmail.includes('@')) {
+      executeEmailLookup(initialEmail);
     }
   };
 
-  const handleCreateFriend = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    const targetEmail = emailQuery.trim();
-    if (!targetEmail) return;
+  const handleConfirmAddFriend = () => {
+    if (!searchResult) return;
+    const targetEmail = searchResult.email;
+    const finalName = customResolvedName.trim() || searchResult.name;
 
     // Check if friend with email already exists
     const existing = friends.find(f => f.email.toLowerCase() === targetEmail.toLowerCase());
@@ -121,16 +210,17 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
       return;
     }
 
-    const finalName = friendName.trim() || inferNameFromEmail(targetEmail);
     const newFriendId = `fr-${Date.now().toString().slice(-6)}`;
     const newFriend: Friend = {
       id: newFriendId,
       name: finalName,
       email: targetEmail,
-      phone: friendPhone.trim() || undefined,
-      avatarColor: friendColor,
+      phone: customPhone.trim() || searchResult.phone || undefined,
+      avatarColor: customColor || searchResult.avatarColor || '#10B981',
       netBalance: 0,
       lastActivity: new Date().toISOString().split('T')[0],
+      userEmail: user.email,
+      ownerEmail: user.email,
     };
 
     onAddFriend(newFriend);
@@ -138,8 +228,7 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
     setIsAddFriendModalOpen(false);
     setSearchTerm('');
     setEmailQuery('');
-    setFriendName('');
-    setFriendPhone('');
+    setSearchResult(null);
     setAddSuccessMessage(`Added ${finalName} (${targetEmail}) to your friends list!`);
     setTimeout(() => setAddSuccessMessage(null), 4000);
   };
@@ -159,27 +248,19 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
     setSettleAmount('');
   };
 
+
   return (
     <div className="space-y-6 pb-12">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
-            Friends
-          </h1>
-          <p className="text-xs text-slate-500 mt-0.5">Find friends by email, split shared expenses, and track debt balances.</p>
-        </div>
-
-        <div className="flex items-center gap-2.5">
-          <button
-            onClick={() => handleOpenAddModalWithEmail('')}
-            id="btn-find-friend-email"
-            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow-2xs transition active:scale-95 cursor-pointer"
-          >
-            <UserPlus className="w-4 h-4" />
-            <span>Find Friend by Email</span>
-          </button>
-        </div>
+      {/* Top Action Toolbar */}
+      <div className="flex items-center justify-end gap-2.5 flex-wrap">
+        <button
+          onClick={() => handleOpenAddModalWithEmail('')}
+          id="btn-find-friend-email"
+          className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow-2xs transition active:scale-95 cursor-pointer"
+        >
+          <UserPlus className="w-4 h-4" />
+          <span>Find Friend by Email</span>
+        </button>
       </div>
 
       {/* Success Notification Alert */}
@@ -206,7 +287,6 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
             <div className="text-2xl font-extrabold text-emerald-700 mt-1 privacy-value">
               +{user.currency}{totalOwedToMe.toLocaleString()}
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">Money to collect from friends</p>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
             <ArrowDownLeft className="w-6 h-6" />
@@ -219,7 +299,6 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
             <div className="text-2xl font-extrabold text-rose-700 mt-1 privacy-value">
               -{user.currency}{totalIOwe.toLocaleString()}
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">Pending payments you need to clear</p>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold">
             <ArrowUpRight className="w-6 h-6" />
@@ -260,19 +339,19 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
               />
             </div>
 
-            {/* If user searched an email and it's NOT in the list yet, show a quick-add card */}
-            {isSearchAnEmail && !exactEmailFriendMatch && (
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl space-y-2 text-xs animate-fadeIn">
-                <div className="flex items-center gap-2 text-blue-900 font-semibold">
-                  <Mail className="w-3.5 h-3.5 text-blue-600" />
-                  <span className="truncate">Email not in list: {trimmedSearch}</span>
+            {/* If user searched an email and it's NOT in the list yet, show a search user directory card */}
+            {isSearchAnEmail && !friends.some(f => f.email.toLowerCase() === trimmedSearch.toLowerCase()) && (
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-2.5 text-xs animate-fadeIn">
+                <div className="flex items-center gap-2 text-slate-700 font-semibold">
+                  <Search className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
+                  <span className="truncate">Not in friends list: <strong>{trimmedSearch}</strong></span>
                 </div>
                 <button
                   onClick={() => handleOpenAddModalWithEmail(trimmedSearch)}
-                  className="w-full py-1.5 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs shadow-2xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                  className="w-full py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow-2xs flex items-center justify-center gap-1.5 transition cursor-pointer"
                 >
-                  <UserPlus className="w-3.5 h-3.5" />
-                  <span>Add {inferNameFromEmail(trimmedSearch)} to List</span>
+                  <Search className="w-3.5 h-3.5" />
+                  <span>Search User Directory</span>
                 </button>
               </div>
             )}
@@ -369,18 +448,35 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Settle Action Button */}
-                  <button
-                    onClick={() => {
-                      setSettleAmount(String(Math.abs(selectedFriend.netBalance)));
-                      setSettleDirection(selectedFriend.netBalance > 0 ? 'they_paid_me' : 'i_paid_them');
-                      setIsSettleModalOpen(true);
-                    }}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-2xs transition active:scale-95 cursor-pointer"
-                  >
-                    <HandCoins className="w-4 h-4" />
-                    <span>Settle Balance (<span className="privacy-value">{user.currency}{Math.abs(selectedFriend.netBalance).toLocaleString()}</span>)</span>
-                  </button>
+                  {/* Settle & Delete Action Buttons */}
+                  <div className="flex items-center gap-2">
+                    {onDeleteFriend && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm(`Are you sure you want to remove "${selectedFriend.name}" from your friends list?`)) {
+                            onDeleteFriend(selectedFriend.id);
+                            setSelectedFriend(friends.find(f => f.id !== selectedFriend.id) || null);
+                          }
+                        }}
+                        className="p-2.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer"
+                        title="Remove Friend"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        setSettleAmount(String(Math.abs(selectedFriend.netBalance)));
+                        setSettleDirection(selectedFriend.netBalance > 0 ? 'they_paid_me' : 'i_paid_them');
+                        setIsSettleModalOpen(true);
+                      }}
+                      className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-2xs transition active:scale-95 cursor-pointer"
+                    >
+                      <HandCoins className="w-4 h-4" />
+                      <span>Settle Balance (<span className="privacy-value">{user.currency}{Math.abs(selectedFriend.netBalance).toLocaleString()}</span>)</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* Balance Hero */}
@@ -427,124 +523,219 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
       {/* MODAL 1: Find Friend by Email / Add Friend */}
       {isAddFriendModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fadeIn">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
-            <div className="flex items-center justify-between mb-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-5">
+            <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-bold text-slate-900">Find Friend by Email</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Enter an email address to find or add them to your friends list.</p>
+                <p className="text-xs text-slate-500 mt-0.5">Search by email to verify their full name and add them.</p>
               </div>
-              <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                <Mail className="w-5 h-5" />
+              <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
+                <Search className="w-5 h-5" />
               </div>
             </div>
 
-            <form onSubmit={handleCreateFriend} className="space-y-4">
-              {/* Email Input */}
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Email Address</label>
-                <div className="relative">
+            {/* Email Search Box */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold uppercase text-slate-700">Friend's Email Address</label>
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
                   <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                   <input
                     type="email"
                     required
                     autoFocus
-                    placeholder="e.g. friend.name@example.com"
+                    placeholder="e.g. rohan.sharma@example.com"
                     value={emailQuery}
-                    onChange={(e) => handleEmailInputChange(e.target.value)}
-                    className="w-full pl-9.5 pr-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 font-medium"
+                    onChange={(e) => setEmailQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (emailQuery.includes('@')) {
+                          executeEmailLookup(emailQuery);
+                        }
+                      }
+                    }}
+                    className="w-full pl-9.5 pr-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 font-medium bg-slate-50/50"
                   />
                 </div>
-              </div>
-
-              {/* Status Detection Banner */}
-              {exactEmailFriendMatch ? (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between text-xs text-amber-900">
-                  <div className="flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
-                    <span><strong>{exactEmailFriendMatch.name}</strong> is already in your friends list!</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedFriend(exactEmailFriendMatch);
-                      setIsAddFriendModalOpen(false);
-                    }}
-                    className="px-2.5 py-1 bg-amber-600 text-white rounded-lg font-bold hover:bg-amber-700 text-xs transition cursor-pointer"
-                  >
-                    View Friend
-                  </button>
-                </div>
-              ) : emailQuery.includes('@') && emailQuery.length > 5 ? (
-                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-xs text-emerald-900">
-                  <Sparkles className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                  <span>Found new contact! Confirm display name to add to your list.</span>
-                </div>
-              ) : null}
-
-              {/* Friend's Full Name (Auto-inferred or manual) */}
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">
-                  Friend's Display Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Sameer Verma"
-                  value={friendName}
-                  onChange={(e) => setFriendName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
-                />
-              </div>
-
-              {/* Phone Number (Optional) */}
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Phone Number (optional)</label>
-                <input
-                  type="tel"
-                  placeholder="+91 98765 43210"
-                  value={friendPhone}
-                  onChange={(e) => setFriendPhone(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
-                />
-              </div>
-
-              {/* Avatar Color Picker */}
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1.5">Avatar Color</label>
-                <div className="flex items-center gap-2.5">
-                  {['#10B981', '#EC4899', '#3B82F6', '#8B5CF6', '#F59E0B', '#EF4444', '#06B6D4'].map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => setFriendColor(c)}
-                      className={`w-7 h-7 rounded-xl transition-transform cursor-pointer ${friendColor === c ? 'scale-120 ring-2 ring-slate-900 shadow-sm' : 'hover:scale-110 opacity-80 hover:opacity-100'}`}
-                      style={{ backgroundColor: c }}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
                 <button
                   type="button"
-                  onClick={() => setIsAddFriendModalOpen(false)}
-                  className="px-4 py-2.5 text-slate-600 hover:bg-slate-100 rounded-xl text-xs font-bold cursor-pointer transition"
+                  onClick={() => executeEmailLookup(emailQuery)}
+                  disabled={isSearchingUser || !emailQuery.includes('@')}
+                  className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-2xs transition cursor-pointer flex items-center gap-1.5"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={Boolean(exactEmailFriendMatch) || !emailQuery.includes('@')}
-                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold shadow-2xs transition cursor-pointer flex items-center gap-1.5"
-                >
-                  <UserPlus className="w-3.5 h-3.5" />
-                  <span>Add to Friends List</span>
+                  {isSearchingUser ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Search className="w-4 h-4" />
+                  )}
+                  <span>Search</span>
                 </button>
               </div>
-            </form>
+            </div>
+
+            {/* Loading Indicator */}
+            {isSearchingUser && (
+              <div className="py-6 flex flex-col items-center justify-center text-slate-500 text-xs space-y-2">
+                <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
+                <p className="font-semibold">Looking up registered user...</p>
+              </div>
+            )}
+
+            {/* NOT FOUND State */}
+            {!isSearchingUser && searchNotFound && (
+              <div className="p-6 bg-slate-50 border border-slate-200/80 rounded-2xl text-center space-y-2.5 animate-fadeIn">
+                <div className="w-12 h-12 rounded-2xl bg-amber-100/70 text-amber-700 mx-auto flex items-center justify-center shadow-2xs">
+                  <UserX className="w-6 h-6" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900">No User Found</h4>
+                  <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto leading-relaxed">
+                    No registered user was found with the email <span className="font-bold text-slate-800 break-all">{searchNotFound}</span>.
+                  </p>
+                </div>
+                <div className="pt-2 text-[11px] text-slate-500 bg-white p-2.5 rounded-xl border border-slate-200 max-w-xs mx-auto text-left leading-relaxed">
+                  💡 <strong>Note:</strong> Only registered users can be added. Please verify the email spelling or ask your friend to create an account.
+                </div>
+              </div>
+            )}
+
+            {/* Search Result Card (Shows Verified Registered User Details) */}
+            {!isSearchingUser && searchResult && (
+              <div className="space-y-4 animate-fadeIn">
+                {/* Result Hero Banner */}
+                <div className="p-4 rounded-2xl bg-gradient-to-br from-slate-50 to-blue-50/40 border border-slate-200">
+                  <div className="flex items-center gap-3.5">
+                    <div
+                      className="w-13 h-13 rounded-2xl flex items-center justify-center text-white font-extrabold text-base shadow-sm flex-shrink-0"
+                      style={{ backgroundColor: customColor || searchResult.avatarColor }}
+                    >
+                      {(customResolvedName || searchResult.name).substring(0, 2).toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="text-base font-extrabold text-slate-900 truncate">
+                          {customResolvedName || searchResult.name}
+                        </h4>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 flex-shrink-0">
+                          <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                          Registered User
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 truncate mt-0.5">{searchResult.email}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Status Notice / Warnings */}
+                {searchResult.isSelf ? (
+                  <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                    <span>This is your own account email. You cannot add yourself as a friend.</span>
+                  </div>
+                ) : searchResult.isAlreadyFriend ? (
+                  <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-center justify-between">
+                    <div className="flex items-center gap-2 font-semibold">
+                      <CheckCircle2 className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                      <span>{searchResult.name} is already in your friends list!</span>
+                    </div>
+                    {searchResult.existingFriend && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedFriend(searchResult.existingFriend!);
+                          setIsAddFriendModalOpen(false);
+                        }}
+                        className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs transition cursor-pointer"
+                      >
+                        View Profile
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  /* Ready to Add Details */
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase text-slate-500">Contact Details</span>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingResolvedName(!isEditingResolvedName)}
+                        className="text-xs text-blue-600 hover:text-blue-700 font-bold flex items-center gap-1 cursor-pointer"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                        <span>{isEditingResolvedName ? 'Done Editing' : 'Customize Name & Color'}</span>
+                      </button>
+                    </div>
+
+                    {isEditingResolvedName && (
+                      <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-3 animate-fadeIn text-xs">
+                        <div>
+                          <label className="block text-[11px] font-bold uppercase text-slate-700 mb-1">Display Name</label>
+                          <input
+                            type="text"
+                            value={customResolvedName}
+                            onChange={(e) => setCustomResolvedName(e.target.value)}
+                            placeholder="Enter full name"
+                            className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-bold uppercase text-slate-700 mb-1">Phone (optional)</label>
+                          <input
+                            type="tel"
+                            value={customPhone}
+                            onChange={(e) => setCustomPhone(e.target.value)}
+                            placeholder="+91 98765 43210"
+                            className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-bold uppercase text-slate-700 mb-1">Theme Color</label>
+                          <div className="flex items-center gap-2">
+                            {['#10B981', '#EC4899', '#3B82F6', '#8B5CF6', '#F59E0B', '#EF4444', '#06B6D4'].map((c) => (
+                              <button
+                                key={c}
+                                type="button"
+                                onClick={() => setCustomColor(c)}
+                                className={`w-6 h-6 rounded-lg transition-transform cursor-pointer ${customColor === c ? 'scale-120 ring-2 ring-slate-900 shadow-sm' : 'hover:scale-110 opacity-80'}`}
+                                style={{ backgroundColor: c }}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Bottom Actions */}
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setIsAddFriendModalOpen(false)}
+                className="px-4 py-2.5 text-slate-600 hover:bg-slate-100 rounded-xl text-xs font-bold cursor-pointer transition"
+              >
+                Cancel
+              </button>
+              {searchResult && !searchResult.isSelf && !searchResult.isAlreadyFriend && (
+                <button
+                  type="button"
+                  onClick={handleConfirmAddFriend}
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-2xs transition cursor-pointer flex items-center gap-1.5 active:scale-95"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>Add {customResolvedName || searchResult.name} as Friend</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
+
 
       {/* MODAL 2: Settle Debt */}
       {isSettleModalOpen && selectedFriend && (

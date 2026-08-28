@@ -203,59 +203,46 @@ export const BudgetsView: React.FC<BudgetsViewProps> = ({
 
   return (
     <div className="space-y-6 pb-16 animate-fadeIn">
-      {/* Header & Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2.5">
-            <Target className="w-6 h-6 text-blue-600" />
-            Budget & Expense Planner
-          </h1>
-          <p className="text-xs text-slate-600 mt-0.5">
-            Compare monthly outflows, track progress limits, and pace category allocations
-          </p>
-        </div>
+      {/* Month Selector & Quick Actions */}
+      <div className="flex items-center justify-end gap-2 flex-wrap">
+        <button
+          onClick={handleJumpToCurrent}
+          className={`px-3 py-1.5 text-xs font-semibold rounded-xl transition shadow-2xs ${
+            isCurrentMonth 
+              ? 'bg-blue-50 text-blue-700 border border-blue-200' 
+              : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+          }`}
+        >
+          Current Month
+        </button>
 
-        {/* Month Selector & Quick Actions */}
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 shadow-2xs">
           <button
-            onClick={handleJumpToCurrent}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-xl transition shadow-2xs ${
-              isCurrentMonth 
-                ? 'bg-blue-50 text-blue-700 border border-blue-200' 
-                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-            }`}
+            onClick={handlePrevMonth}
+            className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition"
+            title="Previous Month"
           >
-            Current Month
+            <ChevronLeft className="w-4 h-4" />
           </button>
-
-          <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 shadow-2xs">
-            <button
-              onClick={handlePrevMonth}
-              className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition"
-              title="Previous Month"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <span className="px-3 text-xs font-bold text-slate-800 min-w-[130px] text-center">
-              {monthName} {selectedYear}
-            </span>
-            <button
-              onClick={handleNextMonth}
-              className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition"
-              title="Next Month"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-
+          <span className="px-3 text-xs font-bold text-slate-800 min-w-[130px] text-center">
+            {monthName} {selectedYear}
+          </span>
           <button
-            onClick={() => onOpenAddExpense(`${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-01`)}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs transition active:scale-95 ml-1"
+            onClick={handleNextMonth}
+            className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition"
+            title="Next Month"
           >
-            <Plus className="w-4 h-4" />
-            <span>Add Expense</span>
+            <ChevronRight className="w-4 h-4" />
           </button>
         </div>
+
+        <button
+          onClick={() => onOpenAddExpense(`${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-01`)}
+          className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs transition active:scale-95 ml-1"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Add Expense</span>
+        </button>
       </div>
 
       {/* Master Monthly Budget Hero Card */}
@@ -281,9 +268,6 @@ export const BudgetsView: React.FC<BudgetsViewProps> = ({
                   {selectedYear}
                 </span>
               </div>
-              <p className="text-xs text-slate-600 mt-0.5">
-                Total monthly spending limit across all accounts and categories
-              </p>
             </div>
           </div>
 
@@ -498,9 +482,6 @@ export const BudgetsView: React.FC<BudgetsViewProps> = ({
               <Layers className="w-5 h-5 text-blue-600" />
               Category Budget Allocations
             </h2>
-            <p className="text-xs text-slate-600 mt-0.5">
-              Set and monitor individual spending limits for each expense category
-            </p>
           </div>
 
           {/* Filters */}

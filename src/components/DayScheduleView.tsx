@@ -287,9 +287,6 @@ export const DayScheduleView: React.FC<DayScheduleViewProps> = ({
                 {relativeDayLabel}
               </span>
             </div>
-            <p className="text-xs text-slate-600 font-medium mt-0.5">
-              Google Calendar styled daily cashflow schedule & transactions
-            </p>
           </div>
         </div>
 
