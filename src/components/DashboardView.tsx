@@ -376,7 +376,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       >
         <Plus className="w-4 h-4 text-slate-500 group-hover:text-slate-800 transition stroke-[2.5]" />
         <span className="text-xs font-bold text-slate-600 group-hover:text-slate-900 whitespace-nowrap">
-          +Add Account
+          Add Account
         </span>
       </button>
     </div>
