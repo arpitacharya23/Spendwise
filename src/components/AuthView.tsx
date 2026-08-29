@@ -462,6 +462,28 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
               </button>
             </form>
           )}
+
+          <p className="mt-5 text-center text-[11px] leading-relaxed text-slate-400">
+            By signing up or logging in, you agree to{' '}
+            <a
+              href="https://app.arpitacharya.com/privacy"
+              className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Privacy Policy
+            </a>{' '}
+            &{' '}
+            <a
+              href="https://app.arpitacharya.com/terms"
+              className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Terms of Service
+            </a>
+            .
+          </p>
         </div>
       </div>
     </div>
