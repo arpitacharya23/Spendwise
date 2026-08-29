@@ -128,54 +128,92 @@ export async function getSupabaseProfile(email: string): Promise<UserProfile | n
   }
 }
 
-export async function saveSupabaseProfile(profile: UserProfile, customId?: string): Promise<boolean> {
+export async function saveSupabaseProfile(
+  profile: UserProfile,
+  customId?: string
+): Promise<boolean> {
   try {
+    console.log("========== saveSupabaseProfile ==========");
+    console.log("Incoming profile:", profile);
+
     const idToUse = customId || profile.email;
+
     const profilePayload = {
       id: idToUse,
       name: profile.name,
       email: profile.email,
       currency: profile.currency,
       avatar_color: profile.avatarColor,
+      //avatar_url: profile.avatarUrl ?? null,
+      phone: profile.phone ?? null,
+      country_code: profile.countryCode ?? "+91",
       monthly_budget: profile.monthlyBudget,
       updated_at: new Date().toISOString(),
     };
 
-    const { error } = await supabase
-      .from('profiles')
-      .upsert(profilePayload, { onConflict: 'email' });
+    console.log("Payload being sent to Supabase:");
+    console.table(profilePayload);
 
-    if (!error) return true;
+    const { data, error } = await supabase
+      .from("profiles")
+      .upsert(profilePayload, { onConflict: "email" })
+      .select();
 
-    console.warn('saveSupabaseProfile upsert notice:', error.message);
+    console.log("Upsert response:");
+    console.log("Data:", data);
+    console.log("Error:", error);
+
+    if (!error) {
+      console.log("✅ Upsert successful");
+      return true;
+    }
+
+    console.warn("⚠️ Upsert failed:", error);
+
+    console.log("Looking for existing profile...");
 
     const { data: existingRow, error: lookupError } = await supabase
-      .from('profiles')
-      .select('email')
-      .eq('email', profile.email)
+      .from("profiles")
+      .select("*")
+      .eq("email", profile.email)
       .maybeSingle();
 
+    console.log("Existing row:", existingRow);
+    console.log("Lookup error:", lookupError);
+
     if (lookupError) {
-      console.error('saveSupabaseProfile lookup error:', lookupError.message);
+      console.error("❌ Lookup failed:", lookupError);
       return false;
     }
 
     if (existingRow) {
-      const { error: updateError } = await supabase
-        .from('profiles')
+      console.log("Updating existing row...");
+
+      const { data: updateData, error: updateError } = await supabase
+        .from("profiles")
         .update(profilePayload)
-        .eq('email', profile.email);
+        .eq("email", profile.email)
+        .select();
+
+      console.log("Update result:", updateData);
+      console.log("Update error:", updateError);
 
       return !updateError;
     }
 
-    const { error: insertError } = await supabase
-      .from('profiles')
-      .insert(profilePayload);
+    console.log("Inserting new row...");
+
+    const { data: insertData, error: insertError } = await supabase
+      .from("profiles")
+      .insert(profilePayload)
+      .select();
+
+    console.log("Insert result:", insertData);
+    console.log("Insert error:", insertError);
 
     return !insertError;
   } catch (err) {
-    console.error('saveSupabaseProfile exception:', err);
+    console.error("❌ Exception inside saveSupabaseProfile:", err);
     return false;
   }
 }
