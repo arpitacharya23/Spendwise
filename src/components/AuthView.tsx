@@ -9,7 +9,8 @@ import {
   Wallet, 
   AlertCircle, 
   CheckCircle2, 
-  Loader2
+  Loader2,
+  Chrome
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { UserProfile } from '../types';
@@ -215,6 +216,42 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    setLoading(true);
+
+    try {
+      const redirectUrl = typeof window !== 'undefined' ? window.location.origin : 'https://app.arpitacharya.com';
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: redirectUrl,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (data?.url) {
+        window.location.href = data.url;
+      } else {
+        setSuccessMsg('Redirecting to Google...');
+      }
+    } catch (err: any) {
+      console.error('Google sign in error:', err);
+      setErrorMsg(err?.message || 'Google sign in failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
   <div
     className="min-h-screen text-slate-100 flex flex-col justify-center items-center p-4 sm:p-6 lg:p-8 selection:bg-blue-600 selection:text-white bg-cover bg-center bg-no-repeat"
@@ -293,6 +330,25 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
           )}
 
           {/* SIGN IN FORM */}
+          <div className="relative my-4">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-slate-700" />
+            </div>
+            <div className="relative flex justify-center text-[10px] uppercase tracking-[0.2em] text-slate-500">
+              <span className="bg-slate-800/90 px-2">or continue with</span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleGoogleSignIn}
+            disabled={loading}
+            className="w-full mb-5 py-3 bg-white hover:bg-slate-100 disabled:bg-slate-300 disabled:cursor-not-allowed text-slate-900 font-bold text-xs sm:text-sm rounded-xl shadow-md transition active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <Chrome className="w-4 h-4" />
+            <span>{loading ? 'Redirecting...' : 'Continue with Google'}</span>
+          </button>
+
           {mode === 'signin' ? (
             <form onSubmit={handleSignIn} className="space-y-4">
               <div>
@@ -466,7 +522,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
           <p className="mt-5 text-center text-[11px] leading-relaxed text-slate-400">
             By signing up or logging in, you agree to{' '}
             <a
-              href="https://app.arpitacharya.com/privacy.html"
+              href="https://app.arpitacharya.com/privacy"
               className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
               target="_blank"
               rel="noreferrer"
@@ -475,7 +531,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
             </a>{' '}
             &{' '}
             <a
-              href="https://app.arpitacharya.com/terms.html"
+              href="https://app.arpitacharya.com/terms"
               className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
               target="_blank"
               rel="noreferrer"
