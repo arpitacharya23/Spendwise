@@ -36,6 +36,7 @@ export interface SplitMemberShare {
 export interface Transaction {
   id: string;
   date: string;
+  time?: string; // e.g. "14:30" or "09:15"
   title: string;
   amount: number;
   type: 'expense' | 'income' | 'transfer' | 'settlement' | 'emi_payment';

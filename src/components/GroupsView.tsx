@@ -852,7 +852,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
                   /* Chat Timeline Stream */
                   <div className="space-y-6">
                     {groupedFlow.map((group, gIdx) => (
-                      <div key={gIdx} className="space-y-3">
+                      <div key={`flow-group-${group.dateLabel}-${gIdx}`} className="space-y-3">
                         {/* Date Divider Pill */}
                         <div className="flex items-center justify-center my-4">
                           <span className="bg-slate-200/90 text-slate-700 text-[11px] font-bold px-3 py-0.5 rounded-full border border-slate-300/50 shadow-2xs select-none">
@@ -861,7 +861,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
                         </div>
 
                         {/* Event Messages */}
-                        {group.items.map((item) => {
+                        {group.items.map((item, itemIdx) => {
                           const isSystemAction =
                             item.type === 'member_joined' ||
                             item.type === 'member_left' ||
@@ -872,7 +872,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
                           // Render System Notification (Centered WhatsApp Pill)
                           if (isSystemAction) {
                             return (
-                              <div key={item.id} className="flex justify-center my-2.5">
+                              <div key={`flow-sys-${item.id || itemIdx}-${itemIdx}`} className="flex justify-center my-2.5">
                                 <div className="bg-white text-slate-700 text-xs font-medium px-4 py-1.5 rounded-full border border-slate-200/90 shadow-2xs flex items-center gap-2 max-w-md text-center">
                                   {item.type === 'member_joined' && <UserPlus className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />}
                                   {item.type === 'member_left' && <UserMinus className="w-3.5 h-3.5 text-rose-500 flex-shrink-0" />}
@@ -890,7 +890,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
                           // Render Settlement Message
                           if (item.type === 'settlement') {
                             return (
-                              <div key={item.id} className="flex items-start space-x-3 my-3">
+                              <div key={`flow-settle-${item.id || itemIdx}-${itemIdx}`} className="flex items-start space-x-3 my-3">
                                 <div
                                   className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-xs shadow-2xs flex-shrink-0 mt-0.5"
                                   style={{ backgroundColor: item.actorAvatarColor || '#10B981' }}
@@ -936,7 +936,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
                           const title = currentTx?.title || item.details?.txTitle || 'Expense';
 
                           return (
-                            <div key={item.id} className="flex items-start space-x-3 my-3">
+                            <div key={`flow-exp-${item.id || itemIdx}-${itemIdx}`} className="flex items-start space-x-3 my-3">
                               {/* Member Avatar */}
                               <div
                                 className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-xs shadow-2xs flex-shrink-0 mt-0.5"
@@ -1009,23 +1009,23 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
                                 {deselectedMembers.length > 0 && (
                                   <div className="mt-2 flex items-center gap-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md inline-flex">
                                     <AlertCircle className="w-3 h-3" />
-                                    <span>Excluded from split: {deselectedMembers.map(m => m.memberName).join(', ')}</span>
+                                    <span>Excluded from split: {deselectedMembers.map(m => m.memberName || 'Member').join(', ')}</span>
                                   </div>
                                 )}
 
                                 {/* Member Split Pills */}
                                 {item.tx?.splitDetails && (
                                   <div className="mt-3 pt-2.5 border-t border-slate-100 flex flex-wrap gap-1.5">
-                                    {item.tx.splitDetails.map((split) => (
+                                    {item.tx.splitDetails.map((split, splitIdx) => (
                                       <span
-                                        key={split.memberId}
+                                        key={`split-${split.memberId || splitIdx}-${splitIdx}`}
                                         className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
                                           split.isSelected
                                             ? 'bg-blue-50 text-blue-700 border border-blue-200/80'
                                             : 'bg-slate-100 text-slate-400 line-through'
                                         }`}
                                       >
-                                        {split.memberName.split(' ')[0]}: <span className="privacy-value">{user.currency}{split.shareAmount}</span>
+                                        {(split.memberName || 'Member').split(' ')[0]}: <span className="privacy-value">{user.currency}{split.shareAmount}</span>
                                       </span>
                                     ))}
                                   </div>
@@ -1089,9 +1089,9 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
                           className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[9px]"
                           style={{ backgroundColor: f.avatarColor || '#3B82F6' }}
                         >
-                          {f.name.substring(0, 1).toUpperCase()}
+                          {(f.name || 'F').substring(0, 1).toUpperCase()}
                         </div>
-                        <span>+ {f.name.split(' ')[0]}</span>
+                        <span>+ {(f.name || 'Friend').split(' ')[0]}</span>
                       </button>
                     ))}
                     {unaddedFriends.length > 4 && (

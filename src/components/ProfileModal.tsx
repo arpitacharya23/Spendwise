@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, User, Mail, DollarSign, Palette, Check, Phone, Globe } from 'lucide-react';
+import { X, User, Mail, DollarSign, Check, Phone } from 'lucide-react';
 import { UserProfile } from '../types';
 
 interface ProfileModalProps {
@@ -8,17 +8,6 @@ interface ProfileModalProps {
   user: UserProfile;
   onSave: (updatedUser: UserProfile) => void;
 }
-
-const AVATAR_COLORS = [
-  '#2563EB', // Blue
-  '#16A34A', // Green
-  '#DC2626', // Red
-  '#9333EA', // Purple
-  '#EA580C', // Orange
-  '#0D9488', // Teal
-  '#4F46E5', // Indigo
-  '#0F172A', // Slate
-];
 
 const CURRENCIES = [
   { symbol: '₹', code: 'INR', label: '₹ Indian Rupee (INR)' },
@@ -55,7 +44,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const [name, setName] = useState(user.name);
   const [email] = useState(user.email);
   const [currency, setCurrency] = useState(user.currency || '₹');
-  const [avatarColor, setAvatarColor] = useState(user.avatarColor || '#2563EB');
   const [phone, setPhone] = useState(user.phone || '');
   const [countryCode, setCountryCode] = useState(user.countryCode || '+91');
 
@@ -70,20 +58,12 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       name: name.trim(),
       email: email.trim() || user.email,
       currency,
-      avatarColor,
+      avatarColor: user.avatarColor,
       phone: phone.trim() || undefined,
       countryCode,
     });
     onClose();
   };
-
-  const initials = (name.trim() || user.name)
-    .split(' ')
-    .map((n) => n[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -99,7 +79,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-slate-900">User Profile Settings</h2>
-              <p className="text-xs text-slate-500">Manage account identity & currency</p>
             </div>
           </div>
           <button
@@ -112,35 +91,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
         {/* Modal Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Avatar Preview & Color Selection */}
-          <div className="flex items-center gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100">
-            <div
-              className="w-14 h-14 rounded-2xl flex items-center justify-center text-white text-xl font-bold shadow-md transition-colors"
-              style={{ backgroundColor: avatarColor }}
-            >
-              {initials || 'U'}
-            </div>
-            <div className="flex-1 min-w-0">
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                Avatar Theme Color
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {AVATAR_COLORS.map((color) => (
-                  <button
-                    key={color}
-                    type="button"
-                    onClick={() => setAvatarColor(color)}
-                    className={`w-6 h-6 rounded-full transition-transform flex items-center justify-center ${
-                      avatarColor === color ? 'ring-2 ring-offset-2 ring-blue-600 scale-110' : 'hover:scale-105'
-                    }`}
-                    style={{ backgroundColor: color }}
-                  >
-                    {avatarColor === color && <Check className="w-3 h-3 text-white" />}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
 
           {/* Full Name */}
           <div>

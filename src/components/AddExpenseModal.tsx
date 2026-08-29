@@ -39,6 +39,10 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
   const [accountId, setAccountId] = useState(accounts[0]?.id || 'acc-1');
   const [categoryId, setCategoryId] = useState(categories[0]?.id || 'cat-1');
   const [date, setDate] = useState(initialDate || new Date().toISOString().split('T')[0]);
+  const [time, setTime] = useState(() => {
+    const now = new Date();
+    return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  });
   const [notes, setNotes] = useState('');
   const [linkedEmiId, setLinkedEmiId] = useState('');
   const [linkedGroupId, setLinkedGroupId] = useState('');
@@ -104,6 +108,7 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
       accountId,
       categoryId: type === 'emi_payment' ? 'cat-6' : categoryId,
       date,
+      time: time || undefined,
       notes,
       emiId: type === 'emi_payment' || linkedEmiId ? linkedEmiId : undefined,
       groupId: linkedGroupId || undefined,
@@ -178,7 +183,7 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Amount ({user.currency})</label>
               <input
@@ -196,6 +201,15 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Time</label>
+              <input
+                type="time"
+                value={time}
+                onChange={(e) => setTime(e.target.value)}
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>

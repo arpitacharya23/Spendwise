@@ -381,7 +381,7 @@ export const SplitEditor: React.FC<SplitEditorProps> = ({
 
       {/* Member Split Rows List */}
       <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-        {members.map((m) => {
+        {members.map((m, mIdx) => {
           const isSelected = selectedMemberIds.includes(m.id);
           const isPayer = m.id === payerMemberId;
           const exactVal = exactShares[m.id] !== undefined ? exactShares[m.id] : equalPerPerson;
@@ -390,7 +390,7 @@ export const SplitEditor: React.FC<SplitEditorProps> = ({
 
           return (
             <div
-              key={m.id}
+              key={`split-mem-${m.id || mIdx}-${mIdx}`}
               className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 transition ${
                 isSelected
                   ? 'bg-white border-blue-400/80 shadow-2xs'

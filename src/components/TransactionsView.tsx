@@ -16,7 +16,6 @@ import {
   SlidersHorizontal, 
   Trash2, 
   Edit3, 
-  Eye, 
   RotateCcw, 
   Check, 
   ArrowRightLeft,
@@ -84,17 +83,54 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   const [editTitle, setEditTitle] = useState('');
   const [editAmount, setEditAmount] = useState('');
   const [editDate, setEditDate] = useState('');
+  const [editTime, setEditTime] = useState('');
   const [editType, setEditType] = useState<Transaction['type']>('expense');
   const [editAccountId, setEditAccountId] = useState('');
   const [editCategoryId, setEditCategoryId] = useState('');
   const [editNotes, setEditNotes] = useState('');
+
+  // Format display time helper (e.g. "14:30" -> "02:30 PM", or extracting from date/updatedAt)
+  const formatTxTime = (tx: Transaction) => {
+    if (tx.time) {
+      const parts = tx.time.split(':');
+      if (parts.length >= 2) {
+        const h = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10) || 0;
+        if (!isNaN(h)) {
+          const ampm = h >= 12 ? 'PM' : 'AM';
+          const displayH = h % 12 === 0 ? 12 : h % 12;
+          return `${String(displayH).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`;
+        }
+      }
+      return tx.time;
+    }
+    if (tx.date && tx.date.includes('T')) {
+      const timePart = tx.date.split('T')[1]?.substring(0, 5);
+      if (timePart && timePart.includes(':')) {
+        const [hStr, mStr] = timePart.split(':');
+        const h = parseInt(hStr, 10);
+        const m = parseInt(mStr, 10) || 0;
+        if (!isNaN(h)) {
+          const ampm = h >= 12 ? 'PM' : 'AM';
+          const displayH = h % 12 === 0 ? 12 : h % 12;
+          return `${String(displayH).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`;
+        }
+      }
+    }
+    return '';
+  };
 
   // Open Edit Modal
   const handleOpenEdit = (tx: Transaction) => {
     setEditingTx(tx);
     setEditTitle(tx.title);
     setEditAmount(String(tx.amount));
-    setEditDate(tx.date);
+    setEditDate(tx.date.split('T')[0]);
+    let initialTime = tx.time || '';
+    if (!initialTime && tx.date.includes('T')) {
+      initialTime = tx.date.split('T')[1]?.substring(0, 5) || '';
+    }
+    setEditTime(initialTime);
     setEditType(tx.type);
     setEditAccountId(tx.accountId);
     setEditCategoryId(tx.categoryId || 'cat-1');
@@ -110,6 +146,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
       title: editTitle,
       amount: Number(editAmount),
       date: editDate,
+      time: editTime || undefined,
       type: editType,
       accountId: editAccountId,
       categoryId: editCategoryId,
@@ -316,6 +353,87 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
     .reduce((sum, t) => sum + t.amount, 0);
 
   const netFilteredAmount = totalFilteredInflow - totalFilteredOutflow;
+
+  // Group filtered transactions by dates for date-categorized presentation
+  const dateCategorizedTransactions = useMemo(() => {
+    const groupsList: {
+      dateKey: string;
+      displayDate: string;
+      relativeLabel?: string;
+      dayTotalOutflow: number;
+      dayTotalInflow: number;
+      dayNet: number;
+      transactions: Transaction[];
+    }[] = [];
+
+    const dateMap = new Map<string, Transaction[]>();
+
+    filteredTransactions.forEach(tx => {
+      const dKey = tx.date ? tx.date.split('T')[0] : 'Unknown Date';
+      if (!dateMap.has(dKey)) {
+        dateMap.set(dKey, []);
+      }
+      dateMap.get(dKey)!.push(tx);
+    });
+
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+    dateMap.forEach((txList, dKey) => {
+      let displayDate = dKey;
+      let relativeLabel: string | undefined;
+
+      if (dKey !== 'Unknown Date') {
+        const parts = dKey.split('-');
+        if (parts.length === 3) {
+          const year = parseInt(parts[0], 10);
+          const month = parseInt(parts[1], 10) - 1;
+          const day = parseInt(parts[2], 10);
+          const dateObj = new Date(year, month, day);
+
+          if (!isNaN(dateObj.getTime())) {
+            displayDate = dateObj.toLocaleDateString('en-US', {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric'
+            });
+
+            if (dKey === todayStr) {
+              relativeLabel = 'Today';
+            } else if (dKey === yesterdayStr) {
+              relativeLabel = 'Yesterday';
+            }
+          }
+        }
+      }
+
+      const dayTotalOutflow = txList
+        .filter(t => t.type === 'expense' || t.type === 'emi_payment' || (t.type === 'settlement' && t.notes?.includes('Paid to')))
+        .reduce((sum, t) => sum + t.amount, 0);
+
+      const dayTotalInflow = txList
+        .filter(t => t.type === 'income' || (t.type === 'settlement' && t.notes?.includes('Received from')))
+        .reduce((sum, t) => sum + t.amount, 0);
+
+      const dayNet = dayTotalInflow - dayTotalOutflow;
+
+      groupsList.push({
+        dateKey: dKey,
+        displayDate,
+        relativeLabel,
+        dayTotalOutflow,
+        dayTotalInflow,
+        dayNet,
+        transactions: txList
+      });
+    });
+
+    return groupsList;
+  }, [filteredTransactions]);
 
   // Export CSV Handler
   const handleExportCSV = () => {
@@ -752,129 +870,166 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
         )}
       </div>
 
-      {/* Main Transactions List / Table */}
+      {/* Main Transactions List / Table Grouped by Date */}
       <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">
-        {filteredTransactions.length > 0 ? (
-          <div className="divide-y divide-slate-100">
-            {filteredTransactions.map((tx) => {
-              const acc = accounts.find(a => a.id === tx.accountId);
-              const cat = categories.find(c => c.id === tx.categoryId);
-              const grp = groups.find(g => g.id === tx.groupId);
-              const emi = loans.find(l => l.id === tx.emiId);
-              const isExpense = tx.type === 'expense' || tx.type === 'emi_payment' || (tx.type === 'settlement' && tx.notes?.includes('Paid to'));
-
-              return (
-                <div
-                  key={tx.id}
-                  className="group p-4 hover:bg-slate-50/80 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                >
-                  {/* Left Column: Icon + Title + Tags */}
-                  <div className="flex items-start sm:items-center space-x-3.5 min-w-0">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                      tx.type === 'income' 
-                        ? 'bg-emerald-100 text-emerald-600' 
-                        : tx.type === 'emi_payment'
-                        ? 'bg-indigo-100 text-indigo-600'
-                        : tx.type === 'transfer'
-                        ? 'bg-blue-100 text-blue-600'
-                        : tx.type === 'settlement'
-                        ? 'bg-purple-100 text-purple-600'
-                        : 'bg-slate-100 text-slate-700'
-                    }`}>
-                      {tx.type === 'income' ? (
-                        <ArrowDownLeft className="w-5 h-5" />
-                      ) : tx.type === 'emi_payment' ? (
-                        <Landmark className="w-5 h-5" />
-                      ) : tx.type === 'transfer' ? (
-                        <ArrowRightLeft className="w-5 h-5" />
-                      ) : tx.type === 'settlement' ? (
-                        <UserCheck className="w-5 h-5" />
-                      ) : (
-                        <ArrowUpRight className="w-5 h-5" />
-                      )}
-                    </div>
-
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="font-bold text-sm text-slate-900 truncate">{tx.title}</span>
-                        
-                        {/* Category Badge */}
-                        {cat && (
-                          <span 
-                            className="text-[10px] font-semibold px-2 py-0.5 rounded-full border text-slate-700"
-                            style={{ backgroundColor: `${cat.color}15`, borderColor: `${cat.color}40` }}
-                          >
-                            {cat.name}
-                          </span>
-                        )}
-
-                        {/* Group Badge */}
-                        {grp && (
-                          <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded-full font-medium">
-                            {grp.name}
-                          </span>
-                        )}
-
-                        {/* Loan EMI Badge */}
-                        {emi && (
-                          <span className="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded-full font-medium">
-                            {emi.name}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Subtitle Info */}
-                      <p className="text-xs text-slate-700 mt-0.5">
-                        <span>{new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                        <span className="mx-1.5">•</span>
-                        <span className="font-medium text-slate-800">{acc ? acc.name : 'Primary Account'}</span>
-                        {tx.notes && (
-                          <>
-                            <span className="mx-1.5">•</span>
-                            <span className="italic text-slate-600">{tx.notes}</span>
-                          </>
-                        )}
-                      </p>
-                    </div>
+        {dateCategorizedTransactions.length > 0 ? (
+          <div className="divide-y divide-slate-200/70">
+            {dateCategorizedTransactions.map((group) => (
+              <div key={group.dateKey} className="space-y-0">
+                {/* Date Group Header */}
+                <div className="bg-slate-50/95 px-4 py-2.5 border-b border-slate-200/60 flex flex-wrap items-center justify-between gap-2 sticky top-0 z-10 backdrop-blur-xs">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                    <span className="text-xs font-bold text-slate-800 tracking-tight">
+                      {group.displayDate}
+                    </span>
+                    {group.relativeLabel && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
+                        {group.relativeLabel}
+                      </span>
+                    )}
+                    <span className="text-[11px] font-medium text-slate-500">
+                      ({group.transactions.length} {group.transactions.length === 1 ? 'transaction' : 'transactions'})
+                    </span>
                   </div>
 
-                  {/* Right Column: Amount + Action Controls */}
-                  <div className="flex items-center justify-between sm:justify-end space-x-4 pl-13 sm:pl-0">
-                    <div className="text-left sm:text-right">
-                      <div className={`font-extrabold text-sm privacy-value ${isExpense ? 'text-rose-600' : 'text-emerald-600'}`}>
-                        {isExpense ? '-' : '+'}{user.currency}{tx.amount.toLocaleString()}
-                      </div>
-                    </div>
+                  <div className="flex items-center gap-2.5 text-[11px] font-semibold text-slate-600 ml-auto flex-wrap">
+                    {/* Credited Total (Green, Minimal) */}
+                    {group.dayTotalInflow > 0 && (
+                      <span className="text-emerald-600 font-bold privacy-value">
+                        +{user.currency}{group.dayTotalInflow.toLocaleString()}
+                      </span>
+                    )}
 
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => setSelectedTxDetail(tx)}
-                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
-                        title="View details"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
+                    {/* Debited Total (Red, Minimal) */}
+                    {group.dayTotalOutflow > 0 && (
+                      <span className="text-rose-600 font-bold privacy-value">
+                        -{user.currency}{group.dayTotalOutflow.toLocaleString()}
+                      </span>
+                    )}
 
-                      <button
-                        onClick={() => handleOpenEdit(tx)}
-                        className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition"
-                        title="Edit transaction"
-                      >
-                        <Edit3 className="w-4 h-4" />
-                      </button>
-
-                      <button
-                        onClick={() => setDeletingTxId(tx.id)}
-                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                        title="Delete transaction"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                    {/* Day Net Total (Retaining badge with background) */}
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold border privacy-value ${
+                      group.dayNet > 0 
+                        ? 'bg-emerald-100/70 border-emerald-300 text-emerald-800' 
+                        : group.dayNet < 0 
+                        ? 'bg-rose-100/70 border-rose-300 text-rose-800' 
+                        : 'bg-slate-100 border-slate-200 text-slate-700'
+                    }`}>
+                      <span className="text-[10px] font-medium uppercase opacity-75">Net</span>
+                      <span>
+                        {group.dayNet > 0 ? '+' : group.dayNet < 0 ? '-' : ''}
+                        {user.currency}{Math.abs(group.dayNet).toLocaleString()}
+                      </span>
+                    </span>
                   </div>
                 </div>
-              );
-            })}
+
+                {/* Transaction Rows for This Date */}
+                <div className="divide-y divide-slate-100">
+                  {group.transactions.map((tx) => {
+                    const acc = accounts.find(a => a.id === tx.accountId);
+                    const cat = categories.find(c => c.id === tx.categoryId);
+                    const grp = groups.find(g => g.id === tx.groupId);
+                    const emi = loans.find(l => l.id === tx.emiId);
+                    const isExpense = tx.type === 'expense' || tx.type === 'emi_payment' || (tx.type === 'settlement' && tx.notes?.includes('Paid to'));
+                    const formattedTime = formatTxTime(tx);
+
+                    return (
+                      <div
+                        key={tx.id}
+                        onClick={() => handleOpenEdit(tx)}
+                        className="group p-3.5 sm:p-4 hover:bg-slate-50 transition flex items-center justify-between gap-3 cursor-pointer"
+                      >
+                        {/* Left Column: Icon + Title + Badges + Subtitle */}
+                        <div className="flex items-center space-x-3.5 min-w-0 flex-1">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                            tx.type === 'income' 
+                              ? 'bg-emerald-100 text-emerald-600' 
+                              : tx.type === 'emi_payment'
+                              ? 'bg-indigo-100 text-indigo-600'
+                              : tx.type === 'transfer'
+                              ? 'bg-blue-100 text-blue-600'
+                              : tx.type === 'settlement'
+                              ? 'bg-purple-100 text-purple-600'
+                              : 'bg-slate-100 text-slate-700'
+                          }`}>
+                            {tx.type === 'income' ? (
+                              <ArrowDownLeft className="w-5 h-5" />
+                            ) : tx.type === 'emi_payment' ? (
+                              <Landmark className="w-5 h-5" />
+                            ) : tx.type === 'transfer' ? (
+                              <ArrowRightLeft className="w-5 h-5" />
+                            ) : tx.type === 'settlement' ? (
+                              <UserCheck className="w-5 h-5" />
+                            ) : (
+                              <ArrowUpRight className="w-5 h-5" />
+                            )}
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="font-bold text-sm text-slate-900 truncate group-hover:text-blue-600 transition">{tx.title}</span>
+                              
+                              {/* Category Badge */}
+                              {cat && (
+                                <span 
+                                  className="text-[10px] font-semibold px-2 py-0.5 rounded-full border text-slate-700"
+                                  style={{ backgroundColor: `${cat.color}15`, borderColor: `${cat.color}40` }}
+                                >
+                                  {cat.name}
+                                </span>
+                              )}
+
+                              {/* Group Badge */}
+                              {grp && (
+                                <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded-full font-medium">
+                                  {grp.name}
+                                </span>
+                              )}
+
+                              {/* Loan EMI Badge */}
+                              {emi && (
+                                <span className="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded-full font-medium">
+                                  {emi.name}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Subtitle Info (Time + Account + Notes) */}
+                            <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                              {formattedTime && (
+                                <>
+                                  <span className="inline-flex items-center gap-1 font-semibold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded-md text-[11px]">
+                                    <Clock className="w-3 h-3 text-slate-400" />
+                                    <span>{formattedTime}</span>
+                                  </span>
+                                  <span className="text-slate-300">•</span>
+                                </>
+                              )}
+                              <span className="font-medium text-slate-700">{acc ? acc.name : 'Primary Account'}</span>
+                              {tx.notes && (
+                                <>
+                                  <span className="text-slate-300">•</span>
+                                  <span className="italic text-slate-500 truncate max-w-xs">{tx.notes}</span>
+                                </>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Right Column: Amount only */}
+                        <div className="text-right flex-shrink-0 pl-3">
+                          <div className={`font-extrabold text-sm privacy-value ${isExpense ? 'text-rose-600' : 'text-emerald-600'}`}>
+                            {isExpense ? '-' : '+'}{user.currency}{tx.amount.toLocaleString()}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         ) : (
           <div className="p-12 text-center">
@@ -891,14 +1046,14 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
               {activeFiltersCount > 0 && (
                 <button
                   onClick={handleClearAllFilters}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition"
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition cursor-pointer"
                 >
                   Clear All Filters
                 </button>
               )}
               <button
                 onClick={onOpenAddExpense}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition cursor-pointer"
               >
                 Add Transaction
               </button>
@@ -937,7 +1092,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Amount ({user.currency})</label>
                   <input
@@ -956,6 +1111,15 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                     required
                     value={editDate}
                     onChange={(e) => setEditDate(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Time</label>
+                  <input
+                    type="time"
+                    value={editTime}
+                    onChange={(e) => setEditTime(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900"
                   />
                 </div>
@@ -1019,20 +1183,35 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                 />
               </div>
 
-              <div className="pt-3 flex items-center justify-end space-x-3">
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-between gap-3">
                 <button
                   type="button"
-                  onClick={() => setEditingTx(null)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition"
+                  onClick={() => {
+                    const idToDelete = editingTx.id;
+                    setEditingTx(null);
+                    setDeletingTxId(idToDelete);
+                  }}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-bold transition cursor-pointer"
                 >
-                  Cancel
+                  <Trash2 className="w-4 h-4" />
+                  <span>Delete</span>
                 </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition"
-                >
-                  Save Changes
-                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingTx(null)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition cursor-pointer"
+                  >
+                    Save
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -1068,7 +1247,10 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
 
                 <div className="flex justify-between py-1 border-b border-slate-100">
                   <span className="text-slate-600">Date:</span>
-                  <span className="font-semibold text-slate-800">{selectedTxDetail.date}</span>
+                  <span className="font-semibold text-slate-800">
+                    {selectedTxDetail.date}
+                    {formatTxTime(selectedTxDetail) ? ` at ${formatTxTime(selectedTxDetail)}` : ''}
+                  </span>
                 </div>
 
                 <div className="flex justify-between py-1 border-b border-slate-100">

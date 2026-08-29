@@ -539,7 +539,7 @@ export const RulesView: React.FC<RulesViewProps> = ({
         {filteredRules.map((rule) => {
           const targetCategory = categories.find(c => c.id === rule.categoryId);
           const targetAccount = rule.accountId ? accounts.find(a => a.id === rule.accountId) : null;
-          const keywordsList = rule.keyword.split(/[,;]+/).map(k => k.trim()).filter(Boolean);
+          const keywordsList = (rule.keyword || '').split(/[,;]+/).map(k => k.trim()).filter(Boolean);
 
           return (
             <div

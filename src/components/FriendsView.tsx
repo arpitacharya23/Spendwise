@@ -20,7 +20,7 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import { Account, Friend, Transaction, UserProfile } from '../types';
-import { findUserByEmail } from '../lib/supabaseService';
+import { findUserByEmailOrPhone } from '../lib/supabaseService';
 
 interface FriendsViewProps {
   user: UserProfile;
@@ -30,6 +30,30 @@ interface FriendsViewProps {
   onAddFriend: (friend: Partial<Friend>) => void;
   onSettleFriendDebt: (friendId: string, amount: number, accountId: string, direction: 'they_paid_me' | 'i_paid_them') => void;
   onDeleteFriend?: (friendId: string) => void;
+}
+
+// Helper to normalize phone digits
+function normalizePhone(p?: string | null): string {
+  if (!p) return '';
+  return p.replace(/\D/g, '');
+}
+
+function isPhoneMatch(p1?: string | null, p2?: string | null): boolean {
+  const n1 = normalizePhone(p1);
+  const n2 = normalizePhone(p2);
+  if (!n1 || !n2) return false;
+  // If exact all digits match
+  if (n1 === n2) return true;
+  // If standard 10-digit phone matches (e.g. +91 9876543210 vs 9876543210)
+  if (n1.length >= 10 && n2.length >= 10 && n1.slice(-10) === n2.slice(-10)) {
+    return true;
+  }
+  return false;
+}
+
+function isPhoneQuery(q: string): boolean {
+  const digits = (q.match(/\d/g) || []).length;
+  return digits >= 10 && !q.includes('@');
 }
 
 // Helper to format clean display name from email
@@ -75,8 +99,8 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
   const [isAddFriendModalOpen, setIsAddFriendModalOpen] = useState(false);
   const [isSettleModalOpen, setIsSettleModalOpen] = useState(false);
 
-  // Search by email state in Modal
-  const [emailQuery, setEmailQuery] = useState('');
+  // Search by email or phone state in Modal
+  const [searchQuery, setSearchQuery] = useState('');
   const [isSearchingUser, setIsSearchingUser] = useState(false);
   const [searchResult, setSearchResult] = useState<SearchUserResult | null>(null);
   const [searchNotFound, setSearchNotFound] = useState<string | null>(null);
@@ -96,17 +120,35 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
   const totalIOwe = friends.reduce((sum, f) => f.netBalance < 0 ? sum + Math.abs(f.netBalance) : sum, 0);
 
   const trimmedSearch = searchTerm.trim();
+  const searchDigits = normalizePhone(trimmedSearch);
   const isSearchAnEmail = trimmedSearch.includes('@') && trimmedSearch.includes('.');
+  const isSearchAPhone = searchDigits.length >= 10;
+  const isSearchIdentifier = isSearchAnEmail || isSearchAPhone;
   
-  const filteredFriends = friends.filter(f => 
-    f.name.toLowerCase().includes(trimmedSearch.toLowerCase()) || 
-    f.email.toLowerCase().includes(trimmedSearch.toLowerCase())
-  );
+  const filteredFriends = friends.filter(f => {
+    if (isSearchAnEmail) {
+      return f.email.toLowerCase() === trimmedSearch.toLowerCase();
+    }
+    if (isSearchAPhone) {
+      return isPhoneMatch(f.phone, trimmedSearch);
+    }
+    // Search by friend name
+    return f.name.toLowerCase().includes(trimmedSearch.toLowerCase());
+  });
 
-  // Perform search lookup by email - ONLY returns registered users
-  const executeEmailLookup = async (emailToSearch: string) => {
-    const norm = emailToSearch.trim().toLowerCase();
-    if (!norm || !norm.includes('@')) {
+  // Perform search lookup by email or mobile number - ONLY returns registered users
+  const executeUserLookup = async (queryToSearch: string) => {
+    const norm = queryToSearch.trim();
+    if (!norm) {
+      setSearchResult(null);
+      setSearchNotFound(null);
+      return;
+    }
+
+    const isEmail = norm.includes('@') && norm.includes('.');
+    const digits = normalizePhone(norm);
+    const isPhone = digits.length >= 10;
+    if (!isEmail && !isPhone) {
       setSearchResult(null);
       setSearchNotFound(null);
       return;
@@ -116,12 +158,15 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
     setSearchNotFound(null);
     setSearchResult(null);
 
-    // 1. Check if it's the user's own email
-    if (user.email && norm === user.email.trim().toLowerCase()) {
+    // 1. Check if it's the user's own account (email or phone)
+    const isSelfEmail = isEmail && user.email && norm.toLowerCase() === user.email.trim().toLowerCase();
+    const isSelfPhone = isPhone && isPhoneMatch(user.phone, norm);
+    if (isSelfEmail || isSelfPhone) {
       setSearchResult({
-        email: norm,
+        email: user.email,
         name: user.name,
         avatarColor: user.avatarColor || '#3B82F6',
+        phone: user.phone,
         isSelf: true,
       });
       setIsSearchingUser(false);
@@ -129,7 +174,12 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
     }
 
     // 2. Check if already a friend in current local list
-    const existing = friends.find(f => f.email.toLowerCase() === norm);
+    const existing = friends.find(f => {
+      if (isEmail && f.email.toLowerCase() === norm.toLowerCase()) return true;
+      if (isPhone && isPhoneMatch(f.phone, norm)) return true;
+      return false;
+    });
+
     if (existing) {
       setSearchResult({
         email: existing.email,
@@ -145,16 +195,18 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
 
     // 3. Query Supabase profiles table for real registered user
     try {
-      const dbProfile = await findUserByEmail(norm);
+      const dbProfile = await findUserByEmailOrPhone(norm);
       if (dbProfile && dbProfile.name) {
         setSearchResult({
           email: dbProfile.email,
           name: dbProfile.name,
           avatarColor: dbProfile.avatarColor || '#3B82F6',
+          phone: dbProfile.phone,
           isRegistered: true,
         });
         setCustomResolvedName(dbProfile.name);
         setCustomColor(dbProfile.avatarColor || '#3B82F6');
+        setCustomPhone(dbProfile.phone || (isPhoneQuery(norm) ? norm : ''));
         setIsSearchingUser(false);
         return;
       }
@@ -168,22 +220,26 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
     setIsSearchingUser(false);
   };
 
-  // Debounce search when typing email in modal
+  // Debounce search when typing in modal
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (emailQuery.includes('@') && emailQuery.includes('.')) {
-        executeEmailLookup(emailQuery);
-      } else if (!emailQuery.trim()) {
+      const trimmed = searchQuery.trim();
+      const isEmail = trimmed.includes('@') && trimmed.includes('.');
+      const isPhone = normalizePhone(trimmed).length >= 10;
+
+      if (isEmail || isPhone) {
+        executeUserLookup(trimmed);
+      } else {
         setSearchResult(null);
         setSearchNotFound(null);
       }
     }, 400);
 
     return () => clearTimeout(timer);
-  }, [emailQuery]);
+  }, [searchQuery]);
 
-  const handleOpenAddModalWithEmail = (initialEmail: string = '') => {
-    setEmailQuery(initialEmail);
+  const handleOpenAddModal = (initialQuery: string = '') => {
+    setSearchQuery(initialQuery);
     setSearchResult(null);
     setSearchNotFound(null);
     setIsEditingResolvedName(false);
@@ -191,8 +247,11 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
     setCustomColor('#10B981');
     setAddSuccessMessage(null);
     setIsAddFriendModalOpen(true);
-    if (initialEmail && initialEmail.includes('@')) {
-      executeEmailLookup(initialEmail);
+    const initialTrimmed = initialQuery.trim();
+    const isEmail = initialTrimmed.includes('@') && initialTrimmed.includes('.');
+    const isPhone = normalizePhone(initialTrimmed).length >= 10;
+    if (isEmail || isPhone) {
+      executeUserLookup(initialTrimmed);
     }
   };
 
@@ -201,8 +260,12 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
     const targetEmail = searchResult.email;
     const finalName = customResolvedName.trim() || searchResult.name;
 
-    // Check if friend with email already exists
-    const existing = friends.find(f => f.email.toLowerCase() === targetEmail.toLowerCase());
+    // Check if friend with email or phone already exists
+    const existing = friends.find(f => 
+      (targetEmail && f.email.toLowerCase() === targetEmail.toLowerCase()) ||
+      (searchResult.phone && isPhoneMatch(f.phone, searchResult.phone))
+    );
+
     if (existing) {
       setSelectedFriend(existing);
       setIsAddFriendModalOpen(false);
@@ -227,9 +290,9 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
     setSelectedFriend(newFriend);
     setIsAddFriendModalOpen(false);
     setSearchTerm('');
-    setEmailQuery('');
+    setSearchQuery('');
     setSearchResult(null);
-    setAddSuccessMessage(`Added ${finalName} (${targetEmail}) to your friends list!`);
+    setAddSuccessMessage(`Added ${finalName} to your friends list!`);
     setTimeout(() => setAddSuccessMessage(null), 4000);
   };
 
@@ -254,12 +317,12 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
       {/* Top Action Toolbar */}
       <div className="flex items-center justify-end gap-2.5 flex-wrap">
         <button
-          onClick={() => handleOpenAddModalWithEmail('')}
-          id="btn-find-friend-email"
+          onClick={() => handleOpenAddModal('')}
+          id="btn-find-friend"
           className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow-2xs transition active:scale-95 cursor-pointer"
         >
           <UserPlus className="w-4 h-4" />
-          <span>Find Friend by Email</span>
+          <span>Find Friend (Mobile / Email)</span>
         </button>
       </div>
 
@@ -314,14 +377,14 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
           </div>
           <h3 className="text-lg font-bold text-slate-900">No Friends Added Yet</h3>
           <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 mb-6">
-            Find a friend by typing their email address to add them to your list, track IOUs, and split group expenses.
+            Find a friend by typing their mobile number or email address to add them to your list, track IOUs, and split group expenses.
           </p>
           <button
-            onClick={() => handleOpenAddModalWithEmail('')}
+            onClick={() => handleOpenAddModal('')}
             className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-2xs transition cursor-pointer"
           >
             <UserPlus className="w-4 h-4" />
-            <span>Find Friend by Email</span>
+            <span>Find Friend by Mobile or Email</span>
           </button>
         </div>
       ) : (
@@ -332,22 +395,25 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
               <input
                 type="text"
-                placeholder="Find friend by email or name..."
+                placeholder="Find friend by name, mobile, or email..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-9 pr-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 bg-slate-50/50"
               />
             </div>
 
-            {/* If user searched an email and it's NOT in the list yet, show a search user directory card */}
-            {isSearchAnEmail && !friends.some(f => f.email.toLowerCase() === trimmedSearch.toLowerCase()) && (
+            {/* If user searched an email or phone and it's NOT in the list yet, show a search user directory card */}
+            {isSearchIdentifier && !friends.some(f => 
+              (isSearchAnEmail && f.email.toLowerCase() === trimmedSearch.toLowerCase()) ||
+              (isSearchAPhone && isPhoneMatch(f.phone, trimmedSearch))
+            ) && (
               <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-2.5 text-xs animate-fadeIn">
                 <div className="flex items-center gap-2 text-slate-700 font-semibold">
                   <Search className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
                   <span className="truncate">Not in friends list: <strong>{trimmedSearch}</strong></span>
                 </div>
                 <button
-                  onClick={() => handleOpenAddModalWithEmail(trimmedSearch)}
+                  onClick={() => handleOpenAddModal(trimmedSearch)}
                   className="w-full py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow-2xs flex items-center justify-center gap-1.5 transition cursor-pointer"
                 >
                   <Search className="w-3.5 h-3.5" />
@@ -357,15 +423,15 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
             )}
 
             <div className="space-y-2 max-h-[550px] overflow-y-auto pr-1">
-              {filteredFriends.length === 0 && !isSearchAnEmail ? (
+              {filteredFriends.length === 0 && !isSearchIdentifier ? (
                 <div className="text-center py-8 text-xs text-slate-500">
                   <p>No friend matched "{searchTerm}".</p>
                   <button
-                    onClick={() => handleOpenAddModalWithEmail(searchTerm.includes('@') ? searchTerm : '')}
-                    className="mt-2 text-blue-600 font-bold hover:underline inline-flex items-center gap-1"
+                    onClick={() => handleOpenAddModal(searchTerm)}
+                    className="mt-2 text-blue-600 font-bold hover:underline inline-flex items-center gap-1 cursor-pointer"
                   >
                     <UserPlus className="w-3 h-3" />
-                    <span>Find or Add by Email</span>
+                    <span>Find Friend in Directory</span>
                   </button>
                 </div>
               ) : (
@@ -390,7 +456,13 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
                         </div>
                         <div className="min-w-0">
                           <h4 className="font-bold text-xs text-slate-900 truncate">{f.name}</h4>
-                          <p className="text-[11px] text-slate-500 truncate">{f.email}</p>
+                          <div className="flex items-center gap-1 text-[11px] text-slate-500 truncate">
+                            {f.phone ? (
+                              <span className="truncate">{f.phone}</span>
+                            ) : (
+                              <span className="truncate">{f.email}</span>
+                            )}
+                          </div>
                         </div>
                       </div>
 
@@ -505,7 +577,7 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
                   <h4 className="text-xs font-bold uppercase text-slate-500 mb-3">Mutual Transactions & Group Splits</h4>
                   <div className="p-4 bg-slate-50/70 rounded-2xl border border-slate-100 text-xs text-slate-600 space-y-2">
                     <p>
-                      Track shared expenses, group settlements, and debt balances directly with <strong>{selectedFriend.name}</strong> ({selectedFriend.email}).
+                      Track shared expenses, group settlements, and debt balances directly with <strong>{selectedFriend.name}</strong> ({selectedFriend.email}{selectedFriend.phone ? ` • ${selectedFriend.phone}` : ''}).
                     </p>
                   </div>
                 </div>
@@ -520,38 +592,44 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
         </div>
       )}
 
-      {/* MODAL 1: Find Friend by Email / Add Friend */}
+      {/* MODAL 1: Find Friend by Mobile Number or Email / Add Friend */}
       {isAddFriendModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fadeIn">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-5">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-bold text-slate-900">Find Friend by Email</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Search by email to verify their full name and add them.</p>
+                <h2 className="text-xl font-bold text-slate-900">Find Friend</h2>
+                <p className="text-xs text-slate-500 mt-0.5">Search by mobile number or email to verify their registered account and add them.</p>
               </div>
               <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
                 <Search className="w-5 h-5" />
               </div>
             </div>
 
-            {/* Email Search Box */}
+            {/* Mobile / Email Search Box */}
             <div className="space-y-1.5">
-              <label className="block text-xs font-bold uppercase text-slate-700">Friend's Email Address</label>
+              <label className="block text-xs font-bold uppercase text-slate-700">Friend's Mobile Number or Email</label>
               <div className="flex items-center gap-2">
                 <div className="relative flex-1">
-                  <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                  {searchQuery.includes('@') ? (
+                    <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                  ) : isPhoneQuery(searchQuery) ? (
+                    <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                  ) : (
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                  )}
                   <input
-                    type="email"
+                    type="text"
                     required
                     autoFocus
-                    placeholder="e.g. rohan.sharma@example.com"
-                    value={emailQuery}
-                    onChange={(e) => setEmailQuery(e.target.value)}
+                    placeholder="e.g. +91 98765 43210 or rohan@example.com"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
-                        if (emailQuery.includes('@')) {
-                          executeEmailLookup(emailQuery);
+                        if (searchQuery.trim()) {
+                          executeUserLookup(searchQuery);
                         }
                       }
                     }}
@@ -560,8 +638,8 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
                 </div>
                 <button
                   type="button"
-                  onClick={() => executeEmailLookup(emailQuery)}
-                  disabled={isSearchingUser || !emailQuery.includes('@')}
+                  onClick={() => executeUserLookup(searchQuery)}
+                  disabled={isSearchingUser || (!(searchQuery.includes('@') && searchQuery.includes('.')) && normalizePhone(searchQuery).length < 10)}
                   className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-2xs transition cursor-pointer flex items-center gap-1.5"
                 >
                   {isSearchingUser ? (
@@ -591,11 +669,11 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
                 <div>
                   <h4 className="text-sm font-bold text-slate-900">No User Found</h4>
                   <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto leading-relaxed">
-                    No registered user was found with the email <span className="font-bold text-slate-800 break-all">{searchNotFound}</span>.
+                    No registered user was found matching <span className="font-bold text-slate-800 break-all">{searchNotFound}</span>.
                   </p>
                 </div>
                 <div className="pt-2 text-[11px] text-slate-500 bg-white p-2.5 rounded-xl border border-slate-200 max-w-xs mx-auto text-left leading-relaxed">
-                  💡 <strong>Note:</strong> Only registered users can be added. Please verify the email spelling or ask your friend to create an account.
+                  💡 <strong>Note:</strong> Only registered users can be added. Please verify the mobile number or email spelling, or ask your friend to create an account.
                 </div>
               </div>
             )}
@@ -622,7 +700,20 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
                           Registered User
                         </span>
                       </div>
-                      <p className="text-xs text-slate-500 truncate mt-0.5">{searchResult.email}</p>
+                      <div className="flex flex-col gap-0.5 mt-1 text-xs text-slate-500">
+                        {searchResult.email && (
+                          <div className="flex items-center gap-1.5 truncate">
+                            <Mail className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                            <span className="truncate">{searchResult.email}</span>
+                          </div>
+                        )}
+                        {searchResult.phone && (
+                          <div className="flex items-center gap-1.5 truncate">
+                            <Phone className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                            <span className="truncate">{searchResult.phone}</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -631,7 +722,7 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
                 {searchResult.isSelf ? (
                   <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-center gap-2">
                     <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
-                    <span>This is your own account email. You cannot add yourself as a friend.</span>
+                    <span>This is your own account ({searchResult.email || searchResult.phone}). You cannot add yourself as a friend.</span>
                   </div>
                 ) : searchResult.isAlreadyFriend ? (
                   <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-center justify-between">
@@ -757,7 +848,7 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
                         : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
-                    {selectedFriend.name.split(' ')[0]} paid me
+                    {(selectedFriend.name || 'Friend').split(' ')[0]} paid me
                   </button>
                   <button
                     type="button"
@@ -768,7 +859,7 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
                         : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
-                    I paid {selectedFriend.name.split(' ')[0]}
+                    I paid {(selectedFriend.name || 'Friend').split(' ')[0]}
                   </button>
                 </div>
               </div>

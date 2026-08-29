@@ -61,22 +61,47 @@ export async function checkSupabaseHealth(): Promise<SupabaseHealthStatus> {
 // -----------------------------------------------------------------------------
 // PROFILES
 // -----------------------------------------------------------------------------
-export async function findUserByEmail(email: string): Promise<{ name: string; email: string; avatarColor?: string; isRegistered: boolean } | null> {
+export interface FoundUserResult {
+  name: string;
+  email: string;
+  avatarColor?: string;
+  phone?: string;
+  countryCode?: string;
+  isRegistered: boolean;
+}
+
+export function isPhoneExactMatch(p1?: string | null, p2?: string | null): boolean {
+  if (!p1 || !p2) return false;
+  const n1 = p1.replace(/\D/g, '');
+  const n2 = p2.replace(/\D/g, '');
+  if (!n1 || !n2) return false;
+  // If digits are exactly equal
+  if (n1 === n2) return true;
+  // If standard 10-digit phone number matches exactly (e.g., +91 9876543210 vs 9876543210)
+  if (n1.length >= 10 && n2.length >= 10 && n1.slice(-10) === n2.slice(-10)) {
+    return true;
+  }
+  return false;
+}
+
+export async function findUserByEmail(email: string): Promise<FoundUserResult | null> {
   const normalized = email.trim().toLowerCase();
   if (!normalized || !normalized.includes('@')) return null;
 
   try {
     const { data, error } = await supabase
       .from('profiles')
-      .select('name, email, avatar_color')
+      .select('name, email, avatar_color, phone, country_code')
       .ilike('email', normalized)
       .maybeSingle();
 
-    if (!error && data && data.name) {
+    if (!error && data && data.name && (data.email || '').toLowerCase() === normalized) {
       return {
         name: data.name,
         email: data.email || normalized,
         avatarColor: data.avatar_color || '#3B82F6',
+        phone: data.phone || undefined,
+        countryCode: data.country_code || undefined,
         isRegistered: true,
       };
     }
@@ -84,20 +109,94 @@ export async function findUserByEmail(email: string): Promise<{ name: string; em
     // Secondary fallback: check if id is stored as email
     const { data: dataById, error: errById } = await supabase
       .from('profiles')
-      .select('name, email, avatar_color')
+      .select('name, email, avatar_color, phone, country_code')
       .ilike('id', normalized)
       .maybeSingle();
 
-    if (!errById && dataById && dataById.name) {
+    if (!errById && dataById && dataById.name && ((dataById.email || '').toLowerCase() === normalized || (dataById as any).id?.toLowerCase() === normalized)) {
       return {
         name: dataById.name,
         email: dataById.email || normalized,
         avatarColor: dataById.avatar_color || '#3B82F6',
+        phone: dataById.phone || undefined,
+        countryCode: dataById.country_code || undefined,
         isRegistered: true,
       };
     }
   } catch (err) {
     console.warn('findUserByEmail lookup note:', err);
+  }
+
+  return null;
+}
+
+export async function findUserByPhone(phoneQuery: string): Promise<FoundUserResult | null> {
+  const rawClean = phoneQuery.trim();
+  const digitsOnly = rawClean.replace(/\D/g, '');
+  // Exact phone match requires a complete 10-digit number
+  if (!digitsOnly || digitsOnly.length < 10) return null;
+
+  const last10 = digitsOnly.slice(-10);
+
+  try {
+    // 1. Try exact match on raw phone string
+    const { data: exactMatch, error: exactErr } = await supabase
+      .from('profiles')
+      .select('name, email, avatar_color, phone, country_code')
+      .eq('phone', rawClean)
+      .maybeSingle();
+
+    if (!exactErr && exactMatch && exactMatch.name && isPhoneExactMatch(exactMatch.phone, rawClean)) {
+      return {
+        name: exactMatch.name,
+        email: exactMatch.email,
+        avatarColor: exactMatch.avatar_color || '#3B82F6',
+        phone: exactMatch.phone || undefined,
+        countryCode: exactMatch.country_code || undefined,
+        isRegistered: true,
+      };
+    }
+
+    // 2. Fetch candidates matching the exact 10-digit suffix and verify exact match
+    const { data: list, error: listErr } = await supabase
+      .from('profiles')
+      .select('name, email, avatar_color, phone, country_code')
+      .ilike('phone', `%${last10}%`)
+      .limit(10);
+
+    if (!listErr && list && list.length > 0) {
+      // Strictly find the exact match (no partial/substring matches)
+      const matched = list.find(item => isPhoneExactMatch(item.phone, rawClean));
+
+      if (matched && matched.name) {
+        return {
+          name: matched.name,
+          email: matched.email,
+          avatarColor: matched.avatar_color || '#3B82F6',
+          phone: matched.phone || undefined,
+          countryCode: matched.country_code || undefined,
+          isRegistered: true,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('findUserByPhone lookup note:', err);
+  }
+
+  return null;
+}
+
+export async function findUserByEmailOrPhone(query: string): Promise<FoundUserResult | null> {
+  const trimmed = query.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.includes('@')) {
+    return findUserByEmail(trimmed);
+  }
+
+  const digitsCount = (trimmed.match(/\d/g) || []).length;
+  if (digitsCount >= 10) {
+    return findUserByPhone(trimmed);
   }
 
   return null;

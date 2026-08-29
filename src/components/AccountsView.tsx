@@ -390,7 +390,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                   <div className="mt-3.5 flex items-center gap-2 text-xs text-indigo-700 bg-indigo-50/80 px-3 py-2 rounded-xl border border-indigo-100/90">
                     <Users className="w-3.5 h-3.5 flex-shrink-0 text-indigo-600" />
                     <span className="truncate">
-                      Shared with: <strong className="font-semibold text-indigo-900">{acc.sharedWith.map(p => p.name || p.email.split('@')[0]).join(', ')}</strong>
+                      Shared with: <strong className="font-semibold text-indigo-900">{acc.sharedWith.map(p => p.name || (p.email ? p.email.split('@')[0] : 'Member')).join(', ')}</strong>
                     </span>
                   </div>
                 )}

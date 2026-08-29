@@ -10,7 +10,7 @@ async function startServer() {
 
   // Health and API routes
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", app: "SplitSheet - Expense Tracker & Splitwise Google Apps Script Engine" });
+    res.json({ status: "ok", app: "SpendWise - Expense Tracker & Splitwise" });
   });
 
   // Vite middleware for development

@@ -82,7 +82,10 @@ export const DayScheduleView: React.FC<DayScheduleViewProps> = ({
 
   // Format the selected date
   const dateObj = useMemo(() => {
-    const [y, m, d] = selectedDate.split('-').map(Number);
+    const parts = (selectedDate || '').split('-').map(Number);
+    const y = parts[0] || today.getFullYear();
+    const m = parts[1] || today.getMonth() + 1;
+    const d = parts[2] || today.getDate();
     return new Date(y, m - 1, d);
   }, [selectedDate]);
 
@@ -192,9 +195,19 @@ export const DayScheduleView: React.FC<DayScheduleViewProps> = ({
         let hour = 9;
         let timeLabel = '09:00 AM';
 
-        if (tx.date && tx.date.includes('T')) {
-          const timePart = tx.date.split('T')[1];
-          const [hStr, mStr] = timePart.split(':');
+        if (tx.time && tx.time.includes(':')) {
+          const [hStr, mStr] = tx.time.split(':');
+          const h = parseInt(hStr, 10);
+          const m = parseInt(mStr, 10) || 0;
+          if (!isNaN(h)) {
+            hour = h;
+            const ampm = h >= 12 ? 'PM' : 'AM';
+            const displayH = h % 12 === 0 ? 12 : h % 12;
+            timeLabel = `${String(displayH).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`;
+          }
+        } else if (tx.date && tx.date.includes('T')) {
+          const timePart = tx.date.split('T')[1] || '';
+          const [hStr, mStr] = timePart.includes(':') ? timePart.split(':') : ['9', '0'];
           const h = parseInt(hStr, 10);
           const m = parseInt(mStr, 10) || 0;
           if (!isNaN(h)) {

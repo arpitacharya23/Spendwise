@@ -434,7 +434,7 @@ export default function App() {
         newTx.paidByMemberId = grp.members[0]?.id || 'mem-1';
 
         const newLog: GroupActivityLog = {
-          id: `log-${Date.now().toString().slice(-6)}`,
+          id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           groupId: newTx.groupId,
           actionType: 'tx_added',
           actorName: user.name,
@@ -753,7 +753,7 @@ export default function App() {
 
     // Add activity log
     const newLog: GroupActivityLog = {
-      id: `log-${Date.now().toString().slice(-6)}`,
+      id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       groupId: newGroupId,
       actionType: 'group_created',
       actorName: user.name,
@@ -820,11 +820,11 @@ export default function App() {
 
     let message = `${payer?.name || user.name} added "${data.title}" (${user.currency}${data.amount.toLocaleString()})`;
     if (deselected.length > 0) {
-      message += ` • Excluded: ${deselected.map(d => d.memberName.split(' ')[0]).join(', ')}`;
+      message += ` • Excluded: ${deselected.map(d => (d.memberName || 'Member').split(' ')[0]).join(', ')}`;
     }
 
     const newLog: GroupActivityLog = {
-      id: `log-${Date.now().toString().slice(-6)}`,
+      id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       groupId,
       actionType: 'tx_added',
       actorName: payer?.name || user.name,
@@ -927,7 +927,7 @@ export default function App() {
 
     if (existingTx.groupId) {
       const newLog: GroupActivityLog = {
-        id: `log-${Date.now().toString().slice(-6)}`,
+        id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         groupId: existingTx.groupId,
         actionType: 'tx_edited',
         actorName: user.name,
@@ -948,7 +948,7 @@ export default function App() {
     deleteSupabaseTransaction(txId);
 
     const newLog: GroupActivityLog = {
-      id: `log-${Date.now().toString().slice(-6)}`,
+      id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       groupId,
       actionType: 'tx_deleted',
       actorName: user.name,
@@ -985,7 +985,7 @@ export default function App() {
     }));
 
     const newLog: GroupActivityLog = {
-      id: `log-${Date.now().toString().slice(-6)}`,
+      id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       groupId,
       actionType: 'member_joined',
       actorName: name,
@@ -1009,7 +1009,7 @@ export default function App() {
     }));
 
     const newLog: GroupActivityLog = {
-      id: `log-${Date.now().toString().slice(-6)}`,
+      id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       groupId,
       actionType: 'member_left',
       actorName: memberName,
@@ -1045,7 +1045,7 @@ export default function App() {
     saveSupabaseTransaction(newTx);
 
     const newLog: GroupActivityLog = {
-      id: `log-${Date.now().toString().slice(-6)}`,
+      id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       groupId,
       actionType: 'settlement_made',
       actorName: fromMember?.name || 'Member',
@@ -1160,7 +1160,7 @@ export default function App() {
 
     if (existingTx.groupId) {
       const newLog: GroupActivityLog = {
-        id: `log-${Date.now().toString().slice(-6)}`,
+        id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         groupId: existingTx.groupId,
         actionType: 'tx_edited',
         actorName: user.name,
@@ -1406,13 +1406,13 @@ export default function App() {
                 ) : (
                   <div
                     className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-xs flex-shrink-0"
-                    style={{ backgroundColor: user.avatarColor }}
+                    style={{ backgroundColor: user.avatarColor || '#3B82F6' }}
                   >
-                    {user.name.split(' ').map(n => n[0]).join('')}
+                    {(user.name || user.email || 'U').split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U'}
                   </div>
                 )}
                 <span className="text-xs font-bold text-slate-800 hidden sm:inline-block max-w-[130px] truncate">
-                  {user.name}
+                  {user.name || 'User'}
                 </span>
                 <ChevronDown className={`w-3.5 h-3.5 text-slate-500 group-hover:text-slate-700 transition-transform duration-200 ${isProfileMenuOpen ? 'rotate-180' : ''}`} />
               </button>
@@ -1433,9 +1433,9 @@ export default function App() {
                       ) : (
                         <div
                           className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shadow flex-shrink-0"
-                          style={{ backgroundColor: user.avatarColor }}
+                          style={{ backgroundColor: user.avatarColor || '#3B82F6' }}
                         >
-                          {user.name.split(' ').map(n => n[0]).join('')}
+                          {(user.name || user.email || 'U').split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U'}
                         </div>
                       )}
                       <div className="min-w-0 flex-1">

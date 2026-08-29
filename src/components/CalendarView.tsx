@@ -311,9 +311,13 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           selectedDate={selectedDate}
           onSelectDate={(newDate) => {
             setSelectedDate(newDate);
-            const [y, m] = newDate.split('-').map(Number);
-            setCurrentYear(y);
-            setCurrentMonth(m - 1);
+            if (newDate && newDate.includes('-')) {
+              const [y, m] = newDate.split('-').map(Number);
+              if (!isNaN(y) && !isNaN(m)) {
+                setCurrentYear(y);
+                setCurrentMonth(m - 1);
+              }
+            }
           }}
           onBackToMonth={() => setViewMode('month')}
           user={user}

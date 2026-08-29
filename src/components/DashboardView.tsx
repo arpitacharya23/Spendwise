@@ -314,13 +314,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           }`}>
             {netSplitwiseBalance > 0 ? `+${user.currency}${netSplitwiseBalance.toLocaleString()}` : `${user.currency}${netSplitwiseBalance.toLocaleString()}`}
           </div>
-          <p className="text-[11px] text-slate-500 mt-1 font-medium">
-            {netSplitwiseBalance > 0 
-              ? `You are owed ${user.currency}${totalOwedToMe.toLocaleString()} total` 
-              : netSplitwiseBalance < 0 
-                ? `You owe ${user.currency}${totalIOwe.toLocaleString()} total` 
-                : 'All settled up with friends'}
-          </p>
+          <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-2 flex-wrap">
+            <span>Owed: <strong className="text-emerald-600 font-bold privacy-value">+{user.currency}{totalOwedToMe.toLocaleString()}</strong></span>
+            <span>•</span>
+            <span>You owe: <strong className="text-rose-600 font-bold privacy-value">-{user.currency}{totalIOwe.toLocaleString()}</strong></span>
+          </div>
         </div>
       </div>
     </div>
@@ -394,9 +392,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <h2 className="text-sm font-extrabold text-slate-900 tracking-tight">
               Credit Card Dues & Direct Bill Pay
             </h2>
-            <p className="text-[11px] text-slate-500">
-              Clear pending statement balances directly using your linked bank accounts.
-            </p>
           </div>
         </div>
 
@@ -499,9 +494,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <h2 className="text-sm font-extrabold text-slate-900 tracking-tight">
               Active Loans & Monthly EMI Schedule
             </h2>
-            <p className="text-[11px] text-slate-500">
-              Track remaining loan balances, monthly installments, and upcoming dues.
-            </p>
           </div>
         </div>
 
@@ -596,9 +588,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <h2 className="text-sm font-extrabold text-slate-900 tracking-tight">
               Splitwise Shared Groups
             </h2>
-            <p className="text-[11px] text-slate-500">
-              Shared trip, flatmate, and project expenses with real-time balance calculations.
-            </p>
           </div>
         </div>
 
@@ -659,9 +648,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <h2 className="text-sm font-extrabold text-slate-900 tracking-tight">
               Friends & Direct Balances
             </h2>
-            <p className="text-[11px] text-slate-500">
-              Direct peer balances across all shared expenses and settlements.
-            </p>
           </div>
         </div>
 
@@ -742,9 +728,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <h2 className="text-sm font-extrabold text-slate-900 tracking-tight">
               Top Spending by Category
             </h2>
-            <p className="text-[11px] text-slate-500">
-              Overview of where your monthly expense budget is allocated.
-            </p>
           </div>
         </div>
 
@@ -819,9 +802,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <h2 className="text-sm font-extrabold text-slate-900 tracking-tight">
               Recent Transactions Activity
             </h2>
-            <p className="text-[11px] text-slate-500">
-              Live chronological activity stream across all accounts.
-            </p>
           </div>
         </div>
 
@@ -892,6 +872,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </h4>
                     <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-0.5">
                       <span>{tx.date}</span>
+                      {tx.time && <span>• {tx.time}</span>}
                       {acc && <span>• {acc.name}</span>}
                       {cat && <span>• {cat.name}</span>}
                     </div>
