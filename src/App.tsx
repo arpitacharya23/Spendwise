@@ -376,9 +376,14 @@ export default function App() {
     setTimeout(() => setLogoutNotice(null), 4000);
   };
 
-  const handleSaveProfile = (updatedUser: UserProfile) => {
+  const handleSaveProfile = async (updatedUser: UserProfile) => {
     setUser(updatedUser);
-    saveSupabaseProfile(updatedUser);
+    try {
+      await saveSupabaseProfile(updatedUser);
+      localStorage.setItem('spendwise_auth_user', JSON.stringify(updatedUser));
+    } catch (err) {
+      console.error('Profile save failed:', err);
+    }
   };
 
   const handleOpenAddExpense = (prefillDate?: string) => {

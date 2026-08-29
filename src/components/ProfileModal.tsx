@@ -40,7 +40,6 @@ const COUNTRY_CODES = [
   { code: '+971', country: 'AE', flag: '🇦🇪', label: 'UAE (+971)' },
   { code: '+65', country: 'SG', flag: '🇸🇬', label: 'Singapore (+65)' },
   { code: '+852', country: 'HK', flag: '🇭🇰', label: 'Hong Kong (+852)' },
-  { code: '+61', country: 'AU', flag: '🇦🇺', label: 'Australia (+61)' },
   { code: '+81', country: 'JP', flag: '🇯🇵', label: 'Japan (+81)' },
   { code: '+49', country: 'DE', flag: '🇩🇪', label: 'Germany (+49)' },
   { code: '+33', country: 'FR', flag: '🇫🇷', label: 'France (+33)' },
@@ -197,8 +196,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                   onChange={(e) => setCountryCode(e.target.value)}
                   className="w-full pl-10 pr-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-blue-600 focus:bg-white transition appearance-none cursor-pointer"
                 >
-                  {COUNTRY_CODES.map((country) => (
-                    <option key={`${country.code}-${country.country}`} value={country.code}>
+                  {COUNTRY_CODES.map((country, index) => (
+                    <option key={index} value={country.code}>
                       {country.flag} {country.code}
                     </option>
                   ))}

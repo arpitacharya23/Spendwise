@@ -137,9 +137,6 @@ export async function saveSupabaseProfile(profile: UserProfile, customId?: strin
       email: profile.email,
       currency: profile.currency,
       avatar_color: profile.avatarColor,
-      avatar_url: profile.avatarUrl || null,
-      phone: profile.phone || null,
-      country_code: profile.countryCode || null,
       monthly_budget: profile.monthlyBudget,
       updated_at: new Date().toISOString(),
     };
@@ -148,14 +145,35 @@ export async function saveSupabaseProfile(profile: UserProfile, customId?: strin
       .from('profiles')
       .upsert(profilePayload, { onConflict: 'email' });
 
-    if (error) {
-      console.warn('saveSupabaseProfile upsert notice:', error.message);
-      const { error: err2 } = await supabase
-        .from('profiles')
-        .upsert(profilePayload);
-      return !err2;
+    if (!error) return true;
+
+    console.warn('saveSupabaseProfile upsert notice:', error.message);
+
+    const { data: existingRow, error: lookupError } = await supabase
+      .from('profiles')
+      .select('email')
+      .eq('email', profile.email)
+      .maybeSingle();
+
+    if (lookupError) {
+      console.error('saveSupabaseProfile lookup error:', lookupError.message);
+      return false;
     }
-    return true;
+
+    if (existingRow) {
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update(profilePayload)
+        .eq('email', profile.email);
+
+      return !updateError;
+    }
+
+    const { error: insertError } = await supabase
+      .from('profiles')
+      .insert(profilePayload);
+
+    return !insertError;
   } catch (err) {
     console.error('saveSupabaseProfile exception:', err);
     return false;

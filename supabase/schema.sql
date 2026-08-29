@@ -14,10 +14,20 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     email TEXT UNIQUE NOT NULL,
     currency TEXT NOT NULL DEFAULT '₹',
     avatar_color TEXT NOT NULL DEFAULT '#3B82F6',
+    avatar_url TEXT DEFAULT NULL,
+    phone TEXT DEFAULT NULL,
+    country_code TEXT DEFAULT '+91',
     monthly_budget NUMERIC DEFAULT 50000,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Ensure all columns exist (safe for existing tables)
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS country_code TEXT DEFAULT '+91',
+  ADD COLUMN IF NOT EXISTS name TEXT DEFAULT 'Unknown';
 
 -- 3. Categories Table
 CREATE TABLE IF NOT EXISTS public.categories (
