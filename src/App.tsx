@@ -289,6 +289,7 @@ export default function App() {
               email: userEmail,
               currency: profileRow?.currency || authUser.user_metadata?.currency || '₹',
               avatarColor: profileRow?.avatar_color || '#3B82F6',
+              avatarUrl: profileRow?.avatar_url || authUser.user_metadata?.avatar_url || authUser.user_metadata?.picture || undefined,
               monthlyBudget: Number(profileRow?.monthly_budget) || 50000,
             };
             setUser(profile);
@@ -316,6 +317,7 @@ export default function App() {
           email: userEmail,
           currency: profileRow?.currency || session.user.user_metadata?.currency || '₹',
           avatarColor: profileRow?.avatar_color || '#3B82F6',
+          avatarUrl: profileRow?.avatar_url || session.user.user_metadata?.avatar_url || session.user.user_metadata?.picture || undefined,
           monthlyBudget: Number(profileRow?.monthly_budget) || 50000,
         };
         setUser(profile);
@@ -1384,12 +1386,21 @@ export default function App() {
                 aria-expanded={isProfileMenuOpen}
                 aria-haspopup="true"
               >
-                <div
-                  className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-xs flex-shrink-0"
-                  style={{ backgroundColor: user.avatarColor }}
-                >
-                  {user.name.split(' ').map(n => n[0]).join('')}
-                </div>
+                {user.avatarUrl ? (
+                  <img
+                    src={user.avatarUrl}
+                    alt={user.name}
+                    className="w-7 h-7 rounded-full object-cover flex-shrink-0 border border-slate-200"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div
+                    className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-xs flex-shrink-0"
+                    style={{ backgroundColor: user.avatarColor }}
+                  >
+                    {user.name.split(' ').map(n => n[0]).join('')}
+                  </div>
+                )}
                 <span className="text-xs font-bold text-slate-800 hidden sm:inline-block max-w-[130px] truncate">
                   {user.name}
                 </span>
@@ -1402,12 +1413,21 @@ export default function App() {
                   {/* User Info Header */}
                   <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">
                     <div className="flex items-center gap-3">
-                      <div
-                        className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shadow flex-shrink-0"
-                        style={{ backgroundColor: user.avatarColor }}
-                      >
-                        {user.name.split(' ').map(n => n[0]).join('')}
-                      </div>
+                      {user.avatarUrl ? (
+                        <img
+                          src={user.avatarUrl}
+                          alt={user.name}
+                          className="w-10 h-10 rounded-full object-cover flex-shrink-0 border border-slate-200"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <div
+                          className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shadow flex-shrink-0"
+                          style={{ backgroundColor: user.avatarColor }}
+                        >
+                          {user.name.split(' ').map(n => n[0]).join('')}
+                        </div>
+                      )}
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-bold text-slate-900 truncate">{user.name}</p>
                         <p className="text-xs text-slate-500 truncate">{user.email}</p>

@@ -118,6 +118,7 @@ export async function getSupabaseProfile(email: string): Promise<UserProfile | n
       email: data.email,
       currency: data.currency || '₹',
       avatarColor: data.avatar_color || '#3B82F6',
+      avatarUrl: data.avatar_url || null,
       monthlyBudget: data.monthly_budget ? Number(data.monthly_budget) : 50000,
     };
   } catch {
@@ -128,32 +129,26 @@ export async function getSupabaseProfile(email: string): Promise<UserProfile | n
 export async function saveSupabaseProfile(profile: UserProfile, customId?: string): Promise<boolean> {
   try {
     const idToUse = customId || profile.email;
+    const profilePayload = {
+      id: idToUse,
+      name: profile.name,
+      email: profile.email,
+      currency: profile.currency,
+      avatar_color: profile.avatarColor,
+      avatar_url: profile.avatarUrl || null,
+      monthly_budget: profile.monthlyBudget,
+      updated_at: new Date().toISOString(),
+    };
+
     const { error } = await supabase
       .from('profiles')
-      .upsert({
-        id: idToUse,
-        name: profile.name,
-        email: profile.email,
-        currency: profile.currency,
-        avatar_color: profile.avatarColor,
-        monthly_budget: profile.monthlyBudget,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'email' });
+      .upsert(profilePayload, { onConflict: 'email' });
 
     if (error) {
       console.warn('saveSupabaseProfile upsert notice:', error.message);
-      // Fallback attempt without specifying onConflict
       const { error: err2 } = await supabase
         .from('profiles')
-        .upsert({
-          id: idToUse,
-          name: profile.name,
-          email: profile.email,
-          currency: profile.currency,
-          avatar_color: profile.avatarColor,
-          monthly_budget: profile.monthlyBudget,
-          updated_at: new Date().toISOString(),
-        });
+        .upsert(profilePayload);
       return !err2;
     }
     return true;

@@ -144,6 +144,7 @@ export interface UserProfile {
   email: string;
   currency: string;
   avatarColor: string;
+  avatarUrl?: string;
   phone?: string;
   monthlyBudget?: number;
 }

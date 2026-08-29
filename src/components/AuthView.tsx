@@ -125,6 +125,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
           email: profileRow.email || userEmail,
           currency: profileRow.currency || '₹',
           avatarColor: profileRow.avatar_color || '#3B82F6',
+          avatarUrl: profileRow.avatar_url || authUser.user_metadata?.avatar_url || authUser.user_metadata?.picture || undefined,
           monthlyBudget: Number(profileRow.monthly_budget) || 50000,
         };
       } else {
@@ -134,6 +135,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
           email: userEmail,
           currency: authUser.user_metadata?.currency || '₹',
           avatarColor: authUser.user_metadata?.avatar_color || '#3B82F6',
+          avatarUrl: authUser.user_metadata?.avatar_url || authUser.user_metadata?.picture || undefined,
           monthlyBudget: Number(authUser.user_metadata?.monthly_budget) || 50000,
         };
         await saveSupabaseProfile(profile, authUser.id);
@@ -203,6 +205,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
         email: cleanEmail,
         currency,
         avatarColor: randomColor,
+        avatarUrl: undefined,
         monthlyBudget: budgetNum,
       };
 
