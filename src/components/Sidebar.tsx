@@ -13,10 +13,10 @@ import {
   ChevronRight, 
   Menu, 
   X, 
-  TrendingUp, 
   Palette, 
   Target,
-  Sparkles 
+  Sparkles,
+  LogOut
 } from 'lucide-react';
 import { UserProfile } from '../types';
 
@@ -27,6 +27,7 @@ interface SidebarProps {
   netWorth: number;
   totalDebts: number;
   onQuickAdd: () => void;
+  onLogout: () => void;
   isCollapsed: boolean;
   setIsCollapsed: (collapsed: boolean) => void;
 }
@@ -38,6 +39,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   netWorth,
   totalDebts,
   onQuickAdd,
+  onLogout,
   isCollapsed,
   setIsCollapsed,
 }) => {
@@ -145,17 +147,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </nav>
             </div>
 
-            {/* Mobile Drawer Bottom: Net Worth pill only */}
-            <div className="pt-4 border-t border-slate-800 group">
-              <div className="p-3 bg-slate-800/80 rounded-xl text-xs">
-                <div className="flex items-center justify-between text-slate-400 mb-0.5">
-                  <span className="text-[10px] font-bold uppercase tracking-wider">Net Worth</span>
-                  <TrendingUp className="w-3.5 h-3.5 text-blue-400" />
-                </div>
-                <div className={`text-sm font-extrabold privacy-value ${netWorth >= 0 ? 'text-white' : 'text-rose-400'}`}>
-                  {user.currency}{netWorth.toLocaleString()}
-                </div>
-              </div>
+            <div className="pt-4 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={onLogout}
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-rose-500/10 text-rose-300 border border-rose-500/20 hover:bg-rose-500/15 px-3 py-2.5 text-xs font-semibold transition cursor-pointer"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Logout</span>
+              </button>
             </div>
           </div>
         </div>
@@ -253,24 +253,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </nav>
         </div>
 
-        {/* Bottom Section: Net Worth Summary Card */}
-        {!isCollapsed && (
-          <div className="pt-3 border-t border-slate-800 w-full group">
-            <div className="p-3 bg-slate-800/60 hover:bg-slate-800/90 rounded-2xl border border-slate-800/80 text-xs transition cursor-default">
-              <div className="flex items-center justify-between text-slate-400 mb-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider">Total Net Worth</span>
-                <TrendingUp className="w-3.5 h-3.5 text-blue-400" />
-              </div>
-              <div className={`text-base font-extrabold privacy-value ${netWorth >= 0 ? 'text-white' : 'text-rose-400'}`}>
-                {user.currency}{netWorth.toLocaleString()}
-              </div>
-              <div className="mt-1 text-[10px] text-slate-400 flex items-center justify-between">
-                <span>Total Debts:</span>
-                <span className="font-semibold text-slate-300 privacy-value">{user.currency}{totalDebts.toLocaleString()}</span>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Bottom Section: Logout Button */}
+        <div className="pt-3 border-t border-slate-800 w-full sticky bottom-0 bg-slate-900">
+          {!isCollapsed ? (
+            <button
+              type="button"
+              onClick={onLogout}
+              className="w-full flex items-center justify-center gap-2 rounded-xl bg-rose-500/10 text-rose-300 border border-rose-500/20 hover:bg-rose-500/15 px-3 py-2.5 text-xs font-semibold transition cursor-pointer"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Logout</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onLogout}
+              className="w-full flex items-center justify-center rounded-xl bg-rose-500/10 text-rose-300 border border-rose-500/20 hover:bg-rose-500/15 p-2.5 transition cursor-pointer"
+              aria-label="Logout"
+              title="Logout"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       </aside>
     </>
   );

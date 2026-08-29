@@ -1296,6 +1296,7 @@ export default function App() {
         netWorth={netWorth}
         totalDebts={totalDebts}
         onQuickAdd={() => setIsAddExpenseModalOpen(true)}
+        onLogout={handleLogout}
         isCollapsed={isSidebarCollapsed}
         setIsCollapsed={setIsSidebarCollapsed}
       />
