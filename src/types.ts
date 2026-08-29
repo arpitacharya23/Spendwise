@@ -146,6 +146,7 @@ export interface UserProfile {
   avatarColor: string;
   avatarUrl?: string;
   phone?: string;
+  countryCode?: string;
   monthlyBudget?: number;
 }
 

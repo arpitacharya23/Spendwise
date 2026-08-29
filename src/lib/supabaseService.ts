@@ -119,6 +119,8 @@ export async function getSupabaseProfile(email: string): Promise<UserProfile | n
       currency: data.currency || '₹',
       avatarColor: data.avatar_color || '#3B82F6',
       avatarUrl: data.avatar_url || null,
+      phone: data.phone || undefined,
+      countryCode: data.country_code || undefined,
       monthlyBudget: data.monthly_budget ? Number(data.monthly_budget) : 50000,
     };
   } catch {
@@ -136,6 +138,8 @@ export async function saveSupabaseProfile(profile: UserProfile, customId?: strin
       currency: profile.currency,
       avatar_color: profile.avatarColor,
       avatar_url: profile.avatarUrl || null,
+      phone: profile.phone || null,
+      country_code: profile.countryCode || null,
       monthly_budget: profile.monthlyBudget,
       updated_at: new Date().toISOString(),
     };

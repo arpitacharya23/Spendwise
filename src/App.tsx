@@ -290,6 +290,8 @@ export default function App() {
               currency: profileRow?.currency || authUser.user_metadata?.currency || '₹',
               avatarColor: profileRow?.avatar_color || '#3B82F6',
               avatarUrl: profileRow?.avatar_url || authUser.user_metadata?.avatar_url || authUser.user_metadata?.picture || undefined,
+              phone: profileRow?.phone || authUser.user_metadata?.phone || undefined,
+              countryCode: profileRow?.country_code || authUser.user_metadata?.country_code || undefined,
               monthlyBudget: Number(profileRow?.monthly_budget) || 50000,
             };
             setUser(profile);
@@ -318,6 +320,8 @@ export default function App() {
           currency: profileRow?.currency || session.user.user_metadata?.currency || '₹',
           avatarColor: profileRow?.avatar_color || '#3B82F6',
           avatarUrl: profileRow?.avatar_url || session.user.user_metadata?.avatar_url || session.user.user_metadata?.picture || undefined,
+          phone: profileRow?.phone || session.user.user_metadata?.phone || undefined,
+          countryCode: profileRow?.country_code || session.user.user_metadata?.country_code || undefined,
           monthlyBudget: Number(profileRow?.monthly_budget) || 50000,
         };
         setUser(profile);

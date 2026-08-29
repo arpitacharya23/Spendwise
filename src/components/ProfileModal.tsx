@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, User, Mail, DollarSign, Palette, Check } from 'lucide-react';
+import { X, User, Mail, DollarSign, Palette, Check, Phone, Globe } from 'lucide-react';
 import { UserProfile } from '../types';
 
 interface ProfileModalProps {
@@ -32,6 +32,21 @@ const CURRENCIES = [
   { symbol: 'S$', code: 'SGD', label: 'S$ Singapore Dollar (SGD)' },
 ];
 
+const COUNTRY_CODES = [
+  { code: '+1', country: 'US', flag: '🇺🇸', label: 'United States (+1)' },
+  { code: '+44', country: 'GB', flag: '🇬🇧', label: 'United Kingdom (+44)' },
+  { code: '+61', country: 'AU', flag: '🇦🇺', label: 'Australia (+61)' },
+  { code: '+91', country: 'IN', flag: '🇮🇳', label: 'India (+91)' },
+  { code: '+971', country: 'AE', flag: '🇦🇪', label: 'UAE (+971)' },
+  { code: '+65', country: 'SG', flag: '🇸🇬', label: 'Singapore (+65)' },
+  { code: '+852', country: 'HK', flag: '🇭🇰', label: 'Hong Kong (+852)' },
+  { code: '+61', country: 'AU', flag: '🇦🇺', label: 'Australia (+61)' },
+  { code: '+81', country: 'JP', flag: '🇯🇵', label: 'Japan (+81)' },
+  { code: '+49', country: 'DE', flag: '🇩🇪', label: 'Germany (+49)' },
+  { code: '+33', country: 'FR', flag: '🇫🇷', label: 'France (+33)' },
+  { code: '+7', country: 'RU', flag: '🇷🇺', label: 'Russia (+7)' },
+];
+
 export const ProfileModal: React.FC<ProfileModalProps> = ({
   isOpen,
   onClose,
@@ -39,9 +54,13 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   onSave,
 }) => {
   const [name, setName] = useState(user.name);
-  const [email, setEmail] = useState(user.email);
+  const [email] = useState(user.email);
   const [currency, setCurrency] = useState(user.currency || '₹');
   const [avatarColor, setAvatarColor] = useState(user.avatarColor || '#2563EB');
+  const [phone, setPhone] = useState(user.phone || '');
+  const [countryCode, setCountryCode] = useState(user.countryCode || '+91');
+
+  const selectedCountry = COUNTRY_CODES.find((entry) => entry.code === countryCode) || COUNTRY_CODES[3];
 
   if (!isOpen) return null;
 
@@ -53,6 +72,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       email: email.trim() || user.email,
       currency,
       avatarColor,
+      phone: phone.trim() || undefined,
+      countryCode,
     });
     onClose();
   };
@@ -145,7 +166,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
           {/* Email Address */}
           <div>
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-              Google Account Email
+              Email Address
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -153,12 +174,50 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
               </div>
               <input
                 type="email"
-                required
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="e.g. arpitacharya23@gmail.com"
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-blue-600 focus:bg-white transition"
+                readOnly
+                disabled
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-sm font-semibold text-slate-500 cursor-not-allowed"
               />
+            </div>
+          </div>
+
+          {/* Mobile Number */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+              Mobile Number
+            </label>
+            <div className="flex items-center gap-2">
+              <div className="relative w-28">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-600 text-sm">
+                  <span>{selectedCountry.flag}</span>
+                </div>
+                <select
+                  value={countryCode}
+                  onChange={(e) => setCountryCode(e.target.value)}
+                  className="w-full pl-10 pr-2 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-blue-600 focus:bg-white transition appearance-none cursor-pointer"
+                >
+                  {COUNTRY_CODES.map((country) => (
+                    <option key={`${country.code}-${country.country}`} value={country.code}>
+                      {country.flag} {country.code}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="relative flex-1">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                  <Phone className="w-4 h-4" />
+                </div>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value.replace(/[^\d+\-\s()]/g, ''))}
+                  placeholder="98765 43210"
+                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-blue-600 focus:bg-white transition"
+                />
+              </div>
             </div>
           </div>
 
