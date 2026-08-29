@@ -45,8 +45,38 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
   
   // Status states
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const handleGoogleSignIn = async () => {
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    setGoogleLoading(true);
+
+    try {
+      const redirectTo = `${window.location.origin}${window.location.pathname}`;
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+    } catch (err: any) {
+      console.error('Google sign-in error:', err);
+      setErrorMsg(err?.message || 'Google sign-in could not be started. Please try again.');
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -291,6 +321,39 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
               <span>{successMsg}</span>
             </div>
           )}
+
+          <div className="space-y-4">
+            <button
+              type="button"
+              onClick={handleGoogleSignIn}
+              disabled={loading || googleLoading}
+              className="w-full py-3 px-4 border border-slate-600 bg-slate-900/80 hover:bg-slate-900 text-white font-semibold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 transition disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+            >
+              {googleLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Connecting Google...</span>
+                </>
+              ) : (
+                <>
+                  <svg viewBox="0 0 24 24" aria-hidden="true" className="w-4 h-4">
+                    <path fill="#EA4335" d="M12 10.2v3.9h5.4c-.2 1.4-1.6 4.2-5.4 4.2-3.2 0-5.8-2.7-5.8-6s2.6-6 5.8-6c1.8 0 3.1.8 3.8 1.5l2.6-2.5C16.7 3.1 14.6 2.2 12 2.2 6.9 2.2 2.8 6.3 2.8 11.4S6.9 20.6 12 20.6c6.9 0 11.4-4.8 11.4-11.6 0-.8-.1-1.5-.2-2.1H12z" opacity="0.9"/>
+                    <path fill="#34A853" d="M3.7 7.5l3.5 2.6c1-1.7 3.1-2.9 5.2-2.9 1.8 0 3.1.8 3.8 1.5l2.6-2.5C16.7 3.1 14.6 2.2 12 2.2 8.1 2.2 4.8 4.6 3.7 7.5z" opacity="0.9"/>
+                    <path fill="#FBBC05" d="M3.7 15.3A9.5 9.5 0 0 1 3.3 11c0-.8.1-1.5.3-2.2l3.8 2.9c-.2.6-.3 1.2-.3 1.9 0 .7.1 1.3.3 1.9L3.7 15.3z" opacity="0.9"/>
+                    <path fill="#4285F4" d="M12 20.6c2.6 0 4.8-.9 6.4-2.4l-3-2.3c-.8.6-1.9 1-3.4 1-2.6 0-4.8-1.7-5.4-4.1l-3.4 2.6A9.8 9.8 0 0 0 12 20.6z" opacity="0.9"/>
+                  </svg>
+                  <span>Continue with Google</span>
+                </>
+              )}
+            </button>
+
+            <div className="relative my-2">
+              <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-700" /></div>
+              <div className="relative flex justify-center text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                <span className="bg-slate-800/90 px-3">or</span>
+              </div>
+            </div>
+          </div>
 
           {/* SIGN IN FORM */}
           {mode === 'signin' ? (
