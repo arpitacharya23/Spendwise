@@ -28,7 +28,9 @@ export async function checkSupabaseHealth(): Promise<SupabaseHealthStatus> {
     'groups',
     'group_activity_logs',
     'friends',
-    'transactions'
+    'transactions',
+    'rules',
+    'budgets'
   ];
 
   const tableStatuses: Record<string, { exists: boolean; count: number; error?: string }> = {};
