@@ -55,7 +55,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   // Date & Month Navigation
   const [selectedYear, setSelectedYear] = useState<number>(today.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState<number>(today.getMonth()); // 0-indexed
-  const [timeframeMode, setTimeframeMode] = useState<'monthly' | 'all_time'>('monthly');
+  const [timeframeMode, setTimeframeMode] = useState<'monthly' | 'yearly' | 'all_time'>('monthly');
 
   // Filters & Search
   const [activityFilter, setActivityFilter] = useState<'all' | 'has_debits' | 'has_credits' | 'budgeted' | 'over_budget' | 'near_limit' | 'on_track' | 'unbudgeted'>('all');
@@ -87,12 +87,23 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   // Quick Color Picker Popover State
   const [quickColorCategoryId, setQuickColorCategoryId] = useState<string | null>(null);
 
-  // Month navigation helpers
+  // Date navigation & calculation helpers
   const monthName = new Date(selectedYear, selectedMonth, 1).toLocaleString('default', { month: 'long' });
   const isCurrentMonth = today.getFullYear() === selectedYear && today.getMonth() === selectedMonth;
+  const isCurrentYear = today.getFullYear() === selectedYear;
+
   const daysInSelectedMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
   const currentDayNum = isCurrentMonth ? today.getDate() : daysInSelectedMonth;
-  const daysRemaining = isCurrentMonth ? Math.max(0, daysInSelectedMonth - currentDayNum) : 0;
+  const daysRemainingInMonth = isCurrentMonth ? Math.max(0, daysInSelectedMonth - currentDayNum) : 0;
+
+  const endOfYear = new Date(selectedYear, 11, 31, 23, 59, 59);
+  const daysRemainingInYear = isCurrentYear
+    ? Math.max(0, Math.ceil((endOfYear.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)))
+    : 0;
+
+  const daysRemaining = timeframeMode === 'yearly' 
+    ? daysRemainingInYear 
+    : (timeframeMode === 'monthly' ? daysRemainingInMonth : 0);
 
   const handlePrevMonth = () => {
     if (selectedMonth === 0) {
@@ -112,16 +123,42 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
     }
   };
 
-  const handleJumpToCurrent = () => {
+  const handlePrevYear = () => {
+    setSelectedYear(prev => prev - 1);
+  };
+
+  const handleNextYear = () => {
+    setSelectedYear(prev => prev + 1);
+  };
+
+  const handleJumpToCurrentMonth = () => {
     setSelectedYear(today.getFullYear());
     setSelectedMonth(today.getMonth());
     setTimeframeMode('monthly');
+  };
+
+  const handleJumpToCurrentYear = () => {
+    setSelectedYear(today.getFullYear());
+    setTimeframeMode('yearly');
   };
 
   // Filter transactions for the selected timeframe
   const activeTransactions = useMemo(() => {
     if (timeframeMode === 'all_time') {
       return transactions;
+    }
+
+    if (timeframeMode === 'yearly') {
+      return transactions.filter(tx => {
+        if (!tx.date) return false;
+        const parts = tx.date.split('-');
+        if (parts.length >= 1) {
+          const y = parseInt(parts[0], 10);
+          return y === selectedYear;
+        }
+        const d = new Date(tx.date);
+        return d.getFullYear() === selectedYear;
+      });
     }
 
     return transactions.filter(tx => {
@@ -160,8 +197,9 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
 
   const netPeriodBalance = totalPeriodCredited - totalPeriodDebited;
 
-  // Master Monthly Spending Budget Calculation
-  const masterBudgetLimit = user.monthlyBudget || 50000;
+  // Master Spending Budget Calculation (Annualized in yearly mode)
+  const baseMonthlyBudget = user.monthlyBudget || 50000;
+  const masterBudgetLimit = timeframeMode === 'yearly' ? baseMonthlyBudget * 12 : baseMonthlyBudget;
   const masterPercentage = masterBudgetLimit > 0 ? (totalPeriodDebited / masterBudgetLimit) * 100 : 0;
   const clampedMasterPercent = Math.min(Math.max(masterPercentage, 0), 100);
   const remainingMasterBudget = masterBudgetLimit - totalPeriodDebited;
@@ -188,10 +226,11 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
       // Net for category (Credits - Debits)
       const netCategory = creditedAmount - debitedAmount;
 
-      // Expense Spending Budget
-      const budget = cat.budgetLimit || 0;
-      const hasBudget = budget > 0;
-      const budgetPercent = hasBudget ? (debitedAmount / budget) * 100 : 0;
+      // Expense Spending Budget (Annualized if in yearly mode)
+      const baseBudget = cat.budgetLimit || 0;
+      const budget = timeframeMode === 'yearly' ? baseBudget * 12 : baseBudget;
+      const hasBudget = baseBudget > 0;
+      const budgetPercent = hasBudget && budget > 0 ? (debitedAmount / budget) * 100 : 0;
       const budgetRemaining = hasBudget ? budget - debitedAmount : 0;
       const isOver = hasBudget && debitedAmount > budget;
       const isNear = hasBudget && budgetPercent >= 75 && budgetPercent <= 100;
@@ -205,6 +244,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
 
       return {
         category: cat,
+        baseBudget,
         debitedAmount,
         debitCount,
         creditedAmount,
@@ -222,7 +262,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
         shareOfTotalDebited,
       };
     });
-  }, [categories, activeTransactions, totalPeriodDebited]);
+  }, [categories, activeTransactions, totalPeriodDebited, timeframeMode]);
 
   // Master allocation metrics
   const totalAllocatedBudget = useMemo(() => {
@@ -412,54 +452,95 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
     <div className="space-y-6 pb-16 animate-fadeIn">
       {/* Top Bar: Timeframe Navigation & Actions */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 flex-wrap">
-        {/* Left: Timeframe / Month Navigation */}
+        {/* Left: Timeframe / Month / Year Navigation */}
         <div className="flex items-center gap-2 flex-wrap">
-          {timeframeMode === 'monthly' ? (
-            <>
-              <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 shadow-2xs">
-                <button
-                  onClick={handlePrevMonth}
-                  className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition"
-                  title="Previous Month"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <span className="px-3 text-xs font-bold text-slate-800 min-w-[130px] text-center">
-                  {monthName} {selectedYear}
-                </span>
-                <button
-                  onClick={handleNextMonth}
-                  className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition"
-                  title="Next Month"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-
+          {/* Stepper based on active timeframe mode */}
+          {timeframeMode === 'monthly' && (
+            <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 shadow-2xs">
               <button
-                onClick={handleJumpToCurrent}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-xl transition shadow-2xs ${
-                  isCurrentMonth 
-                    ? 'bg-blue-50 text-blue-700 border border-blue-200' 
-                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                }`}
+                onClick={handlePrevMonth}
+                className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                title="Previous Month"
               >
-                Current Month
+                <ChevronLeft className="w-4 h-4" />
               </button>
-            </>
-          ) : (
+              <span className="px-3 text-xs font-bold text-slate-800 min-w-[130px] text-center">
+                {monthName} {selectedYear}
+              </span>
+              <button
+                onClick={handleNextMonth}
+                className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                title="Next Month"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {timeframeMode === 'yearly' && (
+            <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 shadow-2xs">
+              <button
+                onClick={handlePrevYear}
+                className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                title="Previous Year"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="px-3 text-xs font-bold text-slate-800 min-w-[100px] text-center">
+                Year {selectedYear}
+              </span>
+              <button
+                onClick={handleNextYear}
+                className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                title="Next Year"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {timeframeMode === 'all_time' && (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold border border-slate-200">
               <CalendarIcon className="w-4 h-4 text-blue-600" />
               <span>All-Time Aggregate</span>
             </div>
           )}
 
-          <button
-            onClick={() => setTimeframeMode(timeframeMode === 'monthly' ? 'all_time' : 'monthly')}
-            className="px-2.5 py-1.5 text-[11px] font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition border border-slate-200 bg-white"
-          >
-            {timeframeMode === 'monthly' ? 'View All Time' : 'Switch to Monthly'}
-          </button>
+          {/* Timeframe Presets: Current Month, Current Year, All Time */}
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+            <button
+              onClick={handleJumpToCurrentMonth}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${
+                timeframeMode === 'monthly' && isCurrentMonth
+                  ? 'bg-white text-blue-700 font-bold shadow-2xs border border-slate-200/80' 
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              Current Month
+            </button>
+
+            <button
+              onClick={handleJumpToCurrentYear}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${
+                timeframeMode === 'yearly' && isCurrentYear
+                  ? 'bg-white text-blue-700 font-bold shadow-2xs border border-slate-200/80' 
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              Current Year
+            </button>
+
+            <button
+              onClick={() => setTimeframeMode('all_time')}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${
+                timeframeMode === 'all_time'
+                  ? 'bg-white text-blue-700 font-bold shadow-2xs border border-slate-200/80' 
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+              }`}
+            >
+              All Time
+            </button>
+          </div>
         </div>
 
         {/* Right: Actions */}
@@ -467,7 +548,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
           {onResetCategories && (
             <button
               onClick={() => setIsResetModalOpen(true)}
-              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition flex items-center gap-1.5"
+              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer"
               title="Reset default categories"
             >
               <RotateCcw className="w-3.5 h-3.5" />
@@ -478,7 +559,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
           <button
             onClick={handleOpenAddModal}
             id="btn-add-category-main"
-            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs transition active:scale-95"
+            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs transition active:scale-95 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>New Category</span>
@@ -496,7 +577,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 <Target className="w-4 h-4" />
               </div>
               <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
-                Monthly Spending Budget
+                {timeframeMode === 'yearly' ? 'Annual Spending Budget' : 'Monthly Spending Budget'}
               </span>
               {!editingMasterBudget && (
                 <button
@@ -504,7 +585,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                     setMasterBudgetValue(String(user.monthlyBudget || 50000));
                     setEditingMasterBudget(true);
                   }}
-                  className="p-1 text-slate-400 hover:text-blue-600 rounded-lg transition"
+                  className="p-1 text-slate-400 hover:text-blue-600 rounded-lg transition cursor-pointer"
                   title="Edit Master Budget"
                 >
                   <Edit2 className="w-3.5 h-3.5" />
@@ -529,27 +610,29 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 </div>
                 <button
                   type="submit"
-                  className="p-1.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition"
-                  title="Save"
+                  className="p-1.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition cursor-pointer"
+                  title="Save Monthly Limit"
                 >
                   <Check className="w-4 h-4" />
                 </button>
                 <button
                   type="button"
                   onClick={() => setEditingMasterBudget(false)}
-                  className="p-1.5 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 transition"
+                  className="p-1.5 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 transition cursor-pointer"
                   title="Cancel"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </form>
             ) : (
-              <div className="flex items-baseline gap-2">
+              <div className="flex items-baseline gap-2 flex-wrap">
                 <span className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight privacy-value">
                   {user.currency}{masterBudgetLimit.toLocaleString('en-IN')}
                 </span>
                 <span className="text-xs font-semibold text-slate-600">
-                  limit for {timeframeMode === 'monthly' ? `${monthName}` : 'all time'}
+                  {timeframeMode === 'monthly' && `limit for ${monthName} ${selectedYear}`}
+                  {timeframeMode === 'yearly' && `limit for ${selectedYear} (${user.currency}${baseMonthlyBudget.toLocaleString('en-IN')}/mo × 12)`}
+                  {timeframeMode === 'all_time' && 'all-time spending aggregate'}
                 </span>
               </div>
             )}
@@ -609,7 +692,9 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 {user.currency}{dailyRunway.toLocaleString('en-IN')}
               </span>
               <span className="text-[10px] font-semibold text-slate-600">
-                {daysRemaining > 0 ? `for ${daysRemaining} days left` : 'Month ended'}
+                {daysRemaining > 0 
+                  ? `for ${daysRemaining} days left in ${timeframeMode === 'yearly' ? selectedYear : monthName}` 
+                  : (timeframeMode === 'all_time' ? 'All-time aggregate' : 'Period ended')}
               </span>
             </div>
           </div>
@@ -816,6 +901,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
             {filteredAndSortedStats.map((item) => {
               const { 
                 category, 
+                baseBudget,
                 debitedAmount, 
                 debitCount, 
                 creditedAmount, 
@@ -981,13 +1067,18 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                       /* Category has an Expense Budget Limit set */
                       <div className="space-y-1">
                         <div className="flex items-center justify-between text-xs">
-                          <div className="flex items-baseline gap-1">
+                          <div className="flex items-baseline gap-1 flex-wrap">
                             <span className="font-extrabold text-slate-900 privacy-value">
                               {user.currency}{debitedAmount.toLocaleString('en-IN')}
                             </span>
                             <span className="text-slate-600 text-[11px] privacy-value">
                               / {user.currency}{budget.toLocaleString('en-IN')}
                             </span>
+                            {timeframeMode === 'yearly' && (
+                              <span className="text-[10px] text-slate-600 font-medium ml-1">
+                                ({user.currency}{baseBudget.toLocaleString('en-IN')}/mo × 12)
+                              </span>
+                            )}
                           </div>
 
                           {/* Budget Status Badge */}
