@@ -123,7 +123,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const cardName = payingCard.name;
     setPayingCard(null);
     setPayAmount('');
-    setPaymentSuccessToast(`Payment of ${user.currency}${amountNum.toLocaleString()} for ${cardName} completed successfully!`);
+    setPaymentSuccessToast(`Payment of ${user.currency}${amountNum.toLocaleString('en-IN')} for ${cardName} completed successfully!`);
     setTimeout(() => {
       setPaymentSuccessToast(null);
     }, 4000);
@@ -241,7 +241,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
         <div className="mt-3">
           <div className={`text-2xl font-extrabold tracking-tight privacy-value ${netWorth >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>
-            {user.currency}{netWorth.toLocaleString()}
+            {user.currency}{netWorth.toLocaleString('en-IN')}
           </div>
           <p className="text-[11px] text-slate-500 mt-1 font-medium flex items-center gap-1">
             <span>Liquid Cash & Assets minus all debts</span>
@@ -262,7 +262,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
         <div className="mt-3">
           <div className="text-2xl font-extrabold tracking-tight text-emerald-700 privacy-value">
-            {user.currency}{totalBankBalance.toLocaleString()}
+            {user.currency}{totalBankBalance.toLocaleString('en-IN')}
           </div>
           <p className="text-[11px] text-slate-500 mt-1 font-medium flex items-center gap-1">
             <span>Across {bankAccounts.length} savings/checking accounts</span>
@@ -283,12 +283,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
         <div className="mt-3">
           <div className="text-2xl font-extrabold tracking-tight text-rose-600 privacy-value">
-            {user.currency}{totalDebts.toLocaleString()}
+            {user.currency}{totalDebts.toLocaleString('en-IN')}
           </div>
           <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-2">
-            <span>CC: <strong className="text-rose-700 privacy-value">{user.currency}{totalCreditCardDue.toLocaleString()}</strong></span>
+            <span>CC: <strong className="text-rose-700 privacy-value">{user.currency}{totalCreditCardDue.toLocaleString('en-IN')}</strong></span>
             <span>•</span>
-            <span>Loans: <strong className="text-rose-700 privacy-value">{user.currency}{totalLoanPrincipal.toLocaleString()}</strong></span>
+            <span>Loans: <strong className="text-rose-700 privacy-value">{user.currency}{totalLoanPrincipal.toLocaleString('en-IN')}</strong></span>
           </div>
         </div>
       </div>
@@ -312,12 +312,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 ? 'text-rose-600' 
                 : 'text-slate-700'
           }`}>
-            {netSplitwiseBalance > 0 ? `+${user.currency}${netSplitwiseBalance.toLocaleString()}` : `${user.currency}${netSplitwiseBalance.toLocaleString()}`}
+            {netSplitwiseBalance > 0 ? `+${user.currency}${netSplitwiseBalance.toLocaleString('en-IN')}` : `${user.currency}${netSplitwiseBalance.toLocaleString('en-IN')}`}
           </div>
           <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-2 flex-wrap">
-            <span>Owed: <strong className="text-emerald-600 font-bold privacy-value">+{user.currency}{totalOwedToMe.toLocaleString()}</strong></span>
+            <span>Owed: <strong className="text-emerald-600 font-bold privacy-value">+{user.currency}{totalOwedToMe.toLocaleString('en-IN')}</strong></span>
             <span>•</span>
-            <span>You owe: <strong className="text-rose-600 font-bold privacy-value">-{user.currency}{totalIOwe.toLocaleString()}</strong></span>
+            <span>You owe: <strong className="text-rose-600 font-bold privacy-value">-{user.currency}{totalIOwe.toLocaleString('en-IN')}</strong></span>
           </div>
         </div>
       </div>
@@ -357,8 +357,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
               <div className="text-sm font-extrabold text-white tracking-tight mt-0.5 leading-tight privacy-value drop-shadow-2xs">
                 {isCard 
-                  ? `${(acc.dueAmount || 0) > 0 ? '-' : ''}${acc.currency}${(acc.dueAmount || 0).toLocaleString()}` 
-                  : `${acc.balance < 0 ? '-' : ''}${acc.currency}${Math.abs(acc.balance).toLocaleString()}`}
+                  ? `${(acc.dueAmount || 0) > 0 ? '-' : ''}${acc.currency}${(acc.dueAmount || 0).toLocaleString('en-IN')}` 
+                  : `${acc.balance < 0 ? '-' : ''}${acc.currency}${Math.abs(acc.balance).toLocaleString('en-IN')}`}
               </div>
             </div>
           </div>
@@ -369,10 +369,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <button
         onClick={onOpenAddAccount}
         id="btn-dash-add-account"
-        className="flex-shrink-0 px-4 py-3 h-[50px] rounded-2xl border-2 border-dashed border-slate-300 hover:border-slate-400 bg-white/40 hover:bg-white text-slate-600 hover:text-slate-900 transition flex items-center justify-center gap-1.5 cursor-pointer active:scale-98 min-w-[130px] sm:min-w-[145px] shadow-2xs group"
+        className="flex-shrink-0 px-4 py-3 self-stretch rounded-2xl border-2 border-dashed border-slate-300 hover:border-slate-400 bg-white/40 hover:bg-white text-slate-600 hover:text-slate-900 transition flex items-center justify-center gap-2 cursor-pointer active:scale-98 min-w-[130px] sm:min-w-[145px] shadow-2xs group select-none"
         title="Add a new bank account or credit card"
       >
-        <Plus className="w-4 h-4 text-slate-500 group-hover:text-slate-800 transition stroke-[2.5]" />
+        <div className="w-6 h-6 rounded-full bg-slate-100 group-hover:bg-slate-200 flex items-center justify-center flex-shrink-0 transition">
+          <Plus className="w-4 h-4 text-slate-600 group-hover:text-slate-900 transition stroke-[2.5]" />
+        </div>
         <span className="text-xs font-bold text-slate-600 group-hover:text-slate-900 whitespace-nowrap">
           Add Account
         </span>
@@ -428,7 +430,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <div className="mt-3">
                     <span className="text-[10px] font-bold uppercase text-slate-500 block">Statement Due</span>
                     <div className="text-xl font-extrabold text-rose-600 mt-0.5 privacy-value">
-                      {card.currency}{card.dueAmount?.toLocaleString()}
+                      {card.currency}{card.dueAmount?.toLocaleString('en-IN')}
                     </div>
                   </div>
 
@@ -436,7 +438,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   {card.creditLimit && (
                     <div className="mt-3">
                       <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1">
-                        <span>Limit: <strong className="text-slate-700 privacy-value">{card.currency}{card.creditLimit.toLocaleString()}</strong></span>
+                        <span>Limit: <strong className="text-slate-700 privacy-value">{card.currency}{card.creditLimit.toLocaleString('en-IN')}</strong></span>
                         <span className={`font-bold ${utilization > 50 ? 'text-rose-600' : 'text-slate-700'}`}>
                           {utilization}% used
                         </span>
@@ -528,13 +530,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <div>
                       <span className="text-[10px] font-bold uppercase text-slate-500 block">Monthly EMI</span>
                       <div className="text-lg font-extrabold text-slate-900 mt-0.5 privacy-value">
-                        {user.currency}{loan.monthlyEMI.toLocaleString()}
+                        {user.currency}{loan.monthlyEMI.toLocaleString('en-IN')}
                       </div>
                     </div>
                     <div className="text-right">
                       <span className="text-[10px] font-semibold text-slate-500 block">Remaining</span>
                       <span className="text-xs font-bold text-slate-700 privacy-value">
-                        {user.currency}{loan.remainingPrincipal.toLocaleString()}
+                        {user.currency}{loan.remainingPrincipal.toLocaleString('en-IN')}
                       </span>
                     </div>
                   </div>
@@ -694,9 +696,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       : 'text-slate-500'
                 }`}>
                   {friend.netBalance > 0 
-                    ? `+${user.currency}${friend.netBalance.toLocaleString()}` 
+                    ? `+${user.currency}${friend.netBalance.toLocaleString('en-IN')}` 
                     : friend.netBalance < 0 
-                      ? `${user.currency}${friend.netBalance.toLocaleString()}` 
+                      ? `${user.currency}${friend.netBalance.toLocaleString('en-IN')}` 
                       : 'Settled'}
                 </span>
                 <span className="text-[9px] block text-slate-400 font-semibold">
@@ -768,7 +770,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
               <div className="mt-3">
                 <div className="text-base font-extrabold text-slate-900 privacy-value">
-                  {user.currency}{cat.amount.toLocaleString()}
+                  {user.currency}{cat.amount.toLocaleString('en-IN')}
                 </div>
                 <div className="w-full h-1.5 bg-slate-200/80 rounded-full overflow-hidden mt-1.5">
                   <div 
@@ -883,7 +885,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <span className={`text-xs font-extrabold privacy-value ${
                     tx.type === 'income' ? 'text-emerald-600' : 'text-rose-600'
                   }`}>
-                    {tx.type === 'income' ? '+' : '-'}{user.currency}{tx.amount.toLocaleString()}
+                    {tx.type === 'income' ? '+' : '-'}{user.currency}{tx.amount.toLocaleString('en-IN')}
                   </span>
                 </div>
               </div>
@@ -994,14 +996,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <div>
                   <span className="text-[10px] text-slate-400 block uppercase font-bold">Outstanding Statement</span>
                   <span className="text-xl font-extrabold text-rose-400 privacy-value">
-                    {payingCard.currency}{payingCard.dueAmount?.toLocaleString() || 0}
+                    {payingCard.currency}{payingCard.dueAmount?.toLocaleString('en-IN') || 0}
                   </span>
                 </div>
                 {payingCard.creditLimit && (
                   <div className="text-right">
                     <span className="text-[10px] text-slate-400 block uppercase">Limit</span>
                     <span className="text-xs font-semibold text-slate-200 privacy-value">
-                      {payingCard.currency}{payingCard.creditLimit.toLocaleString()}
+                      {payingCard.currency}{payingCard.creditLimit.toLocaleString('en-IN')}
                     </span>
                   </div>
                 )}
@@ -1020,7 +1022,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <option value="">Select funding bank account</option>
                   {bankAccounts.map(a => (
                     <option key={a.id} value={a.id}>
-                      {a.name} (Balance: {a.currency}{a.balance.toLocaleString()})
+                      {a.name} (Balance: {a.currency}{a.balance.toLocaleString('en-IN')})
                     </option>
                   ))}
                 </select>
@@ -1036,7 +1038,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <div className={`mt-1.5 text-xs flex items-center justify-between px-1 ${
                       isInsufficient ? 'text-rose-600 font-bold' : 'text-slate-600'
                     }`}>
-                      <span>Available: <strong>{selBank.currency}{selBank.balance.toLocaleString()}</strong></span>
+                      <span>Available: <strong>{selBank.currency}{selBank.balance.toLocaleString('en-IN')}</strong></span>
                       {amtNum > 0 && (
                         <span>
                           {isInsufficient ? (
@@ -1044,7 +1046,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                               <AlertCircle className="w-3.5 h-3.5" /> Insufficient
                             </span>
                           ) : (
-                            <span>After Pay: <strong className="text-emerald-700">{selBank.currency}{remaining.toLocaleString()}</strong></span>
+                            <span>After Pay: <strong className="text-emerald-700">{selBank.currency}{remaining.toLocaleString('en-IN')}</strong></span>
                           )}
                         </span>
                       )}
@@ -1058,7 +1060,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <label className="block text-xs font-bold uppercase text-slate-700">Payment Amount ({user.currency})</label>
                   {payingCard.dueAmount && payingCard.dueAmount > 0 && (
                     <span className="text-[11px] text-slate-500">
-                      Statement Due: <strong>{payingCard.currency}{payingCard.dueAmount.toLocaleString()}</strong>
+                      Statement Due: <strong>{payingCard.currency}{payingCard.dueAmount.toLocaleString('en-IN')}</strong>
                     </span>
                   )}
                 </div>
@@ -1084,7 +1086,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
                       }`}
                     >
-                      Total ({payingCard.currency}{payingCard.dueAmount.toLocaleString()})
+                      Total ({payingCard.currency}{payingCard.dueAmount.toLocaleString('en-IN')})
                     </button>
                     {payingCard.dueAmount > 500 && (
                       <button

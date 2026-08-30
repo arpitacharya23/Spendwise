@@ -281,7 +281,7 @@ export const BudgetsView: React.FC<BudgetsViewProps> = ({
                 className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 shadow-2xs transition active:scale-95 cursor-pointer"
               >
                 <Edit2 className="w-3.5 h-3.5 text-slate-500" />
-                <span>Adjust Master Limit (<span className="privacy-value">{user.currency}{masterBudgetLimit.toLocaleString()}</span>)</span>
+                <span>Adjust Master Limit (<span className="privacy-value">{user.currency}{masterBudgetLimit.toLocaleString('en-IN')}</span>)</span>
               </button>
             ) : null}
           </div>
@@ -325,7 +325,7 @@ export const BudgetsView: React.FC<BudgetsViewProps> = ({
                         : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
-                    {user.currency}{amt.toLocaleString()}
+                    {user.currency}{amt.toLocaleString('en-IN')}
                   </button>
                 ))}
               </div>
@@ -362,10 +362,10 @@ export const BudgetsView: React.FC<BudgetsViewProps> = ({
               <span className={`text-3xl sm:text-4xl font-black tracking-tight privacy-value ${
                 isMasterOverBudget ? 'text-rose-700' : 'text-slate-900'
               }`}>
-                {user.currency}{totalMonthSpending.toLocaleString()}
+                {user.currency}{totalMonthSpending.toLocaleString('en-IN')}
               </span>
               <span className="text-sm font-semibold text-slate-500">
-                / <span className="privacy-value">{user.currency}{masterBudgetLimit.toLocaleString()}</span> limit
+                / <span className="privacy-value">{user.currency}{masterBudgetLimit.toLocaleString('en-IN')}</span> limit
               </span>
             </div>
           </div>
@@ -410,8 +410,8 @@ export const BudgetsView: React.FC<BudgetsViewProps> = ({
           {/* Progress Bar Markers */}
           <div className="flex justify-between items-center text-[10px] font-bold text-slate-600 mt-1.5 px-0.5">
             <span>0% ({user.currency}0)</span>
-            <span>50% (<span className="privacy-value">{user.currency}{(masterBudgetLimit / 2).toLocaleString()}</span>)</span>
-            <span>100% (<span className="privacy-value">{user.currency}{masterBudgetLimit.toLocaleString()}</span>)</span>
+            <span>50% (<span className="privacy-value">{user.currency}{(masterBudgetLimit / 2).toLocaleString('en-IN')}</span>)</span>
+            <span>100% (<span className="privacy-value">{user.currency}{masterBudgetLimit.toLocaleString('en-IN')}</span>)</span>
           </div>
         </div>
 
@@ -428,7 +428,7 @@ export const BudgetsView: React.FC<BudgetsViewProps> = ({
             <div className={`text-lg font-extrabold mt-0.5 privacy-value ${
               isMasterOverBudget ? 'text-rose-700' : 'text-emerald-700'
             }`}>
-              {isMasterOverBudget ? '-' : '+'}{user.currency}{Math.abs(remainingMasterBudget).toLocaleString()}
+              {isMasterOverBudget ? '-' : '+'}{user.currency}{Math.abs(remainingMasterBudget).toLocaleString('en-IN')}
             </div>
             <p className="text-[11px] text-slate-600 mt-0.5">
               {isMasterOverBudget ? 'Over limit threshold' : `${Math.max(0, 100 - Math.round(masterPercentage))}% balance remaining`}
@@ -440,7 +440,7 @@ export const BudgetsView: React.FC<BudgetsViewProps> = ({
               Daily Safe Runway
             </span>
             <div className="text-lg font-extrabold text-slate-900 mt-0.5 privacy-value">
-              {user.currency}{dailyRunway.toLocaleString()}<span className="text-xs font-semibold text-slate-500"> / day</span>
+              {user.currency}{dailyRunway.toLocaleString('en-IN')}<span className="text-xs font-semibold text-slate-500"> / day</span>
             </div>
             <p className="text-[11px] text-slate-600 mt-0.5">
               {isCurrentMonth ? `${daysRemaining} days left this month` : `Full month summary`}
@@ -452,7 +452,7 @@ export const BudgetsView: React.FC<BudgetsViewProps> = ({
               Categories Allocated
             </span>
             <div className="text-lg font-extrabold text-slate-900 mt-0.5 privacy-value">
-              {user.currency}{totalAllocatedToCategories.toLocaleString()}
+              {user.currency}{totalAllocatedToCategories.toLocaleString('en-IN')}
             </div>
             <p className="text-[11px] text-slate-600 mt-0.5">
               Across {categoryStats.filter(c => c.budget > 0).length} customized category limits
@@ -464,10 +464,10 @@ export const BudgetsView: React.FC<BudgetsViewProps> = ({
               Monthly Income Inflow
             </span>
             <div className="text-lg font-extrabold text-emerald-700 mt-0.5 privacy-value">
-              +{user.currency}{totalMonthIncome.toLocaleString()}
+              +{user.currency}{totalMonthIncome.toLocaleString('en-IN')}
             </div>
             <p className="text-[11px] text-slate-600 mt-0.5">
-              Net: <span className="privacy-value">{totalMonthIncome - totalMonthSpending >= 0 ? '+' : '-'}{user.currency}{Math.abs(totalMonthIncome - totalMonthSpending).toLocaleString()}</span>
+              Net: <span className="privacy-value">{totalMonthIncome - totalMonthSpending >= 0 ? '+' : '-'}{user.currency}{Math.abs(totalMonthIncome - totalMonthSpending).toLocaleString('en-IN')}</span>
             </p>
           </div>
         </div>
@@ -609,14 +609,14 @@ export const BudgetsView: React.FC<BudgetsViewProps> = ({
                         <div>
                           <span className="text-[10px] font-bold uppercase text-slate-600 block">Spent</span>
                           <span className={`text-base font-extrabold privacy-value ${isOver ? 'text-rose-700' : 'text-slate-900'}`}>
-                            {user.currency}{spent.toLocaleString()}
+                            {user.currency}{spent.toLocaleString('en-IN')}
                           </span>
                         </div>
 
                         <div className="text-right">
                           <span className="text-[10px] font-bold uppercase text-slate-600 block">Limit</span>
                           <span className="text-xs font-bold text-slate-600">
-                            {budget > 0 ? <span className="privacy-value">{user.currency}{budget.toLocaleString()}</span> : 'No limit set'}
+                            {budget > 0 ? <span className="privacy-value">{user.currency}{budget.toLocaleString('en-IN')}</span> : 'No limit set'}
                           </span>
                         </div>
                       </div>
@@ -643,8 +643,8 @@ export const BudgetsView: React.FC<BudgetsViewProps> = ({
                             </span>
                             <span>
                               {isOver 
-                                ? <span>Over by <span className="privacy-value">{user.currency}{Math.abs(remaining).toLocaleString()}</span></span> 
-                                : <span><span className="privacy-value">{user.currency}{remaining.toLocaleString()}</span> left</span>}
+                                ? <span>Over by <span className="privacy-value">{user.currency}{Math.abs(remaining).toLocaleString('en-IN')}</span></span> 
+                                : <span><span className="privacy-value">{user.currency}{remaining.toLocaleString('en-IN')}</span> left</span>}
                             </span>
                           </div>
                         </div>

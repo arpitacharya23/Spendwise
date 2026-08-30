@@ -458,7 +458,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
             </span>
           </div>
           <div className="text-slate-700 font-semibold">
-            {periodTransactions.length} transactions recorded • Total Volume: <span className="text-slate-900 font-bold">{user.currency}{periodTotalVolume.toLocaleString()}</span>
+            {periodTransactions.length} transactions recorded • Total Volume: <span className="text-slate-900 font-bold">{user.currency}{periodTotalVolume.toLocaleString('en-IN')}</span>
           </div>
         </div>
       </div>
@@ -615,7 +615,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                   )}
                 </div>
                 <span className="font-extrabold text-slate-900">
-                  {user.currency}{stats.totalAmount.toLocaleString()}
+                  {user.currency}{stats.totalAmount.toLocaleString('en-IN')}
                 </span>
               </div>
             </div>

@@ -225,7 +225,7 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             >
               {accounts.map(a => (
                 <option key={a.id} value={a.id}>
-                  {a.name} ({a.type === 'credit_card' ? `Credit Card • Due ${a.currency}${a.dueAmount}` : `Balance ${a.currency}${a.balance}`})
+                  {a.name} ({a.type === 'credit_card' ? `Credit Card • Due ${a.currency}${(a.dueAmount || 0).toLocaleString('en-IN')}` : `Balance ${a.currency}${a.balance.toLocaleString('en-IN')}`})
                 </option>
               ))}
             </select>
@@ -243,7 +243,7 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                 <option value="">Select active loan</option>
                 {loans.map(l => (
                   <option key={l.id} value={l.id}>
-                    {l.name} (Monthly: {user.currency}{l.monthlyEMI})
+                    {l.name} (Monthly: {user.currency}{l.monthlyEMI.toLocaleString('en-IN')})
                   </option>
                 ))}
               </select>

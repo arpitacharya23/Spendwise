@@ -285,20 +285,20 @@ export const SplitEditor: React.FC<SplitEditorProps> = ({
             {Math.abs(exactDiff) < 0.05 ? (
               <>
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                <span className="font-bold">Exact Match: {currency}{exactSum.toLocaleString()} allocated</span>
+                <span className="font-bold">Exact Match: {currency}{exactSum.toLocaleString('en-IN')} allocated</span>
               </>
             ) : exactDiff > 0 ? (
               <>
                 <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
                 <span>
-                  Allocated: <strong>{currency}{exactSum.toLocaleString()}</strong> • <strong>{currency}{exactDiff.toLocaleString()}</strong> remaining
+                  Allocated: <strong>{currency}{exactSum.toLocaleString('en-IN')}</strong> • <strong>{currency}{exactDiff.toLocaleString('en-IN')}</strong> remaining
                 </span>
               </>
             ) : (
               <>
                 <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
                 <span>
-                  Allocated: <strong>{currency}{exactSum.toLocaleString()}</strong> • <strong>{currency}{Math.abs(exactDiff).toLocaleString()}</strong> over total
+                  Allocated: <strong>{currency}{exactSum.toLocaleString('en-IN')}</strong> • <strong>{currency}{Math.abs(exactDiff).toLocaleString('en-IN')}</strong> over total
                 </span>
               </>
             )}
@@ -338,7 +338,7 @@ export const SplitEditor: React.FC<SplitEditorProps> = ({
             {Math.abs(percentageDiff) < 0.1 ? (
               <>
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                <span className="font-bold">Total: 100.0% ({currency}{totalAmount.toLocaleString()})</span>
+                <span className="font-bold">Total: 100.0% ({currency}{totalAmount.toLocaleString('en-IN')})</span>
               </>
             ) : percentageDiff > 0 ? (
               <>
@@ -438,7 +438,7 @@ export const SplitEditor: React.FC<SplitEditorProps> = ({
                   <div>
                     {isSelected ? (
                       <span className="text-xs font-bold text-blue-700">
-                        {currency}{equalPerPerson.toLocaleString()}
+                        {currency}{equalPerPerson.toLocaleString('en-IN')}
                       </span>
                     ) : (
                       <span className="text-xs font-medium text-slate-400">
@@ -489,7 +489,7 @@ export const SplitEditor: React.FC<SplitEditorProps> = ({
                           <span className="text-xs font-bold text-slate-500">%</span>
                         </div>
                         <span className="text-[10px] text-blue-600 font-semibold mt-0.5">
-                          ≈ {currency}{calculatedFromPercent.toLocaleString()}
+                          ≈ {currency}{calculatedFromPercent.toLocaleString('en-IN')}
                         </span>
                       </div>
                     ) : (

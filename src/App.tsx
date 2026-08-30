@@ -216,8 +216,15 @@ export default function App() {
       let connected = false;
 
       if (sbProfile) {
-        setUser(sbProfile);
-        localStorage.setItem('spendwise_auth_user', JSON.stringify(sbProfile));
+        // Merge with existing user profile to preserve avatarUrl if sbProfile has null/undefined
+        setUser(prev => {
+          const merged: UserProfile = {
+            ...sbProfile,
+            avatarUrl: sbProfile.avatarUrl || prev?.avatarUrl,
+          };
+          localStorage.setItem('spendwise_auth_user', JSON.stringify(merged));
+          return merged;
+        });
         connected = true;
       }
       if (sbAccounts !== null) {
@@ -439,7 +446,7 @@ export default function App() {
           actionType: 'tx_added',
           actorName: user.name,
           actorEmail: user.email,
-          message: `${user.name} added "${newTx.title}" (${user.currency}${newTx.amount.toLocaleString()})`,
+          message: `${user.name} added "${newTx.title}" (${user.currency}${newTx.amount.toLocaleString('en-IN')})`,
           timestamp: new Date().toISOString(),
           details: { txId: newTxId, txTitle: newTx.title, amount: newTx.amount, currency: user.currency },
         };
@@ -554,7 +561,7 @@ export default function App() {
       accountId: fromBankId,
       toAccountId: cardId,
       categoryId: 'cat-7',
-      notes: `Bill payment of ${user.currency}${amount.toLocaleString()} paid towards ${card?.name || 'Credit Card'}`,
+      notes: `Bill payment of ${user.currency}${amount.toLocaleString('en-IN')} paid towards ${card?.name || 'Credit Card'}`,
       createdBy: user.email,
       updatedAt: nowIso,
     };
@@ -569,7 +576,7 @@ export default function App() {
       accountId: cardId,
       toAccountId: fromBankId,
       categoryId: 'cat-7',
-      notes: `Payment of ${user.currency}${amount.toLocaleString()} credited from ${fromBank?.name || 'Bank'}`,
+      notes: `Payment of ${user.currency}${amount.toLocaleString('en-IN')} credited from ${fromBank?.name || 'Bank'}`,
       createdBy: user.email,
       updatedAt: nowIso,
     };
@@ -615,7 +622,7 @@ export default function App() {
       accountId: fromId,
       toAccountId: toId,
       categoryId: 'cat-9',
-      notes: note || `Transferred ${user.currency}${amount.toLocaleString()} to ${toAcc?.name || 'Account'}`,
+      notes: note || `Transferred ${user.currency}${amount.toLocaleString('en-IN')} to ${toAcc?.name || 'Account'}`,
       createdBy: user.email,
       updatedAt: nowIso,
     };
@@ -630,7 +637,7 @@ export default function App() {
       accountId: toId,
       toAccountId: fromId,
       categoryId: 'cat-9',
-      notes: note || `Received ${user.currency}${amount.toLocaleString()} from ${fromAcc?.name || 'Account'}`,
+      notes: note || `Received ${user.currency}${amount.toLocaleString('en-IN')} from ${fromAcc?.name || 'Account'}`,
       createdBy: user.email,
       updatedAt: nowIso,
     };
@@ -818,7 +825,7 @@ export default function App() {
     const grp = groups.find(g => g.id === groupId);
     const payer = grp?.members.find(m => m.id === data.paidByMemberId);
 
-    let message = `${payer?.name || user.name} added "${data.title}" (${user.currency}${data.amount.toLocaleString()})`;
+    let message = `${payer?.name || user.name} added "${data.title}" (${user.currency}${data.amount.toLocaleString('en-IN')})`;
     if (deselected.length > 0) {
       message += ` • Excluded: ${deselected.map(d => (d.memberName || 'Member').split(' ')[0]).join(', ')}`;
     }
@@ -932,7 +939,7 @@ export default function App() {
         actionType: 'tx_edited',
         actorName: user.name,
         actorEmail: user.email,
-        message: `${user.name} edited "${data.title}" (${user.currency}${data.amount.toLocaleString()})`,
+        message: `${user.name} edited "${data.title}" (${user.currency}${data.amount.toLocaleString('en-IN')})`,
         timestamp: new Date().toISOString(),
         details: { txId, txTitle: data.title, amount: data.amount, currency: user.currency },
       };
@@ -1050,7 +1057,7 @@ export default function App() {
       actionType: 'settlement_made',
       actorName: fromMember?.name || 'Member',
       actorEmail: fromMember?.email || '',
-      message: `${fromMember?.name} paid ${user.currency}${amount.toLocaleString()} to ${toMember?.name} (Settlement)`,
+      message: `${fromMember?.name} paid ${user.currency}${amount.toLocaleString('en-IN')} to ${toMember?.name} (Settlement)`,
       timestamp: new Date().toISOString(),
       details: { amount, currency: user.currency, targetMemberName: toMember?.name },
     };
@@ -1165,7 +1172,7 @@ export default function App() {
         actionType: 'tx_edited',
         actorName: user.name,
         actorEmail: user.email,
-        message: `${user.name} edited "${updated.title}" (${user.currency}${updated.amount.toLocaleString()})`,
+        message: `${user.name} edited "${updated.title}" (${user.currency}${updated.amount.toLocaleString('en-IN')})`,
         timestamp: new Date().toISOString(),
         details: { txId, txTitle: updated.title, amount: updated.amount, currency: user.currency },
       };

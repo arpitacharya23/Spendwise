@@ -17,6 +17,7 @@ import {
   Users
 } from 'lucide-react';
 import { Account, AccountPermission, UserProfile } from '../types';
+import { INDIAN_BANKS } from '../data/indianBanks';
 
 interface AccountsViewProps {
   user: UserProfile;
@@ -368,18 +369,18 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                         )}
                       </div>
                       <div className="text-2xl font-extrabold text-rose-600 mt-1 privacy-value">
-                        {acc.currency}{due.toLocaleString()}
+                        {acc.currency}{due.toLocaleString('en-IN')}
                       </div>
                       <div className="mt-2 pt-2 border-t border-slate-200 text-xs flex justify-between text-slate-700">
-                        <span>Available: <strong className="text-slate-800 privacy-value">{acc.currency}{available.toLocaleString()}</strong></span>
-                        <span>Limit: <span className="privacy-value">{acc.currency}{limit.toLocaleString()}</span></span>
+                        <span>Available: <strong className="text-slate-800 privacy-value">{acc.currency}{available.toLocaleString('en-IN')}</strong></span>
+                        <span>Limit: <span className="privacy-value">{acc.currency}{limit.toLocaleString('en-IN')}</span></span>
                       </div>
                     </div>
                   ) : (
                     <div>
                       <span className="text-xs font-semibold text-slate-700">Current Available Balance</span>
                       <div className="text-2xl font-extrabold text-slate-900 mt-1 privacy-value">
-                        {acc.currency}{acc.balance.toLocaleString()}
+                        {acc.currency}{acc.balance.toLocaleString('en-IN')}
                       </div>
                     </div>
                   )}
@@ -472,13 +473,18 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Bank / Provider</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. HDFC, Chase, ICICI"
+                  <select
                     value={newAccBank}
                     onChange={(e) => setNewAccBank(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
-                  />
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 bg-white"
+                  >
+                    <option value="">Select Bank / Provider</option>
+                    {INDIAN_BANKS.map((b) => (
+                      <option key={b.slug} value={b.name}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>
@@ -721,7 +727,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                   <option value="">Select source account</option>
                   {bankAccounts.map(a => (
                     <option key={a.id} value={a.id}>
-                      {a.name} ({a.currency}{a.balance.toLocaleString()})
+                      {a.name} ({a.currency}{a.balance.toLocaleString('en-IN')})
                     </option>
                   ))}
                 </select>
@@ -738,7 +744,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                   <option value="">Select destination account</option>
                   {accounts.filter(a => a.id !== transferFrom).map(a => (
                     <option key={a.id} value={a.id}>
-                      {a.name} ({a.type === 'credit_card' ? `Due: ${a.currency}${a.dueAmount}` : `Balance: ${a.currency}${a.balance}`})
+                      {a.name} ({a.type === 'credit_card' ? `Due: ${a.currency}${(a.dueAmount || 0).toLocaleString('en-IN')}` : `Balance: ${a.currency}${a.balance.toLocaleString('en-IN')}`})
                     </option>
                   ))}
                 </select>
@@ -793,7 +799,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
             <h2 className="text-xl font-bold text-slate-900 mb-1">Pay Credit Card Bill</h2>
             <p className="text-xs text-slate-700 mb-4">
-              Card: <strong>{payingCard.name}</strong> • Due: <strong className="text-rose-600">{payingCard.currency}{payingCard.dueAmount?.toLocaleString()}</strong>
+              Card: <strong>{payingCard.name}</strong> • Due: <strong className="text-rose-600">{payingCard.currency}{payingCard.dueAmount?.toLocaleString('en-IN')}</strong>
             </p>
 
             <form onSubmit={handleExecutePayCard} className="space-y-4">
@@ -808,7 +814,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                   <option value="">Select bank account</option>
                   {bankAccounts.map(a => (
                     <option key={a.id} value={a.id}>
-                      {a.name} (Balance: {a.currency}{a.balance.toLocaleString()})
+                      {a.name} (Balance: {a.currency}{a.balance.toLocaleString('en-IN')})
                     </option>
                   ))}
                 </select>
@@ -883,13 +889,21 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
                 <div>
                   <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Bank / Institution</label>
-                  <input
-                    type="text"
+                  <select
                     value={editBank}
                     onChange={(e) => setEditBank(e.target.value)}
-                    placeholder="e.g. Chase, HDFC, Wells Fargo"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
-                  />
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 bg-white"
+                  >
+                    <option value="">Select Bank / Institution</option>
+                    {editBank && !INDIAN_BANKS.some((b) => b.name === editBank) && (
+                      <option value={editBank}>{editBank}</option>
+                    )}
+                    {INDIAN_BANKS.map((b) => (
+                      <option key={b.slug} value={b.name}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 

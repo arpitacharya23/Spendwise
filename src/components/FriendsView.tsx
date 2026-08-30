@@ -348,7 +348,7 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
           <div>
             <span className="text-xs font-bold uppercase text-slate-500">You are owed by friends</span>
             <div className="text-2xl font-extrabold text-emerald-700 mt-1 privacy-value">
-              +{user.currency}{totalOwedToMe.toLocaleString()}
+              +{user.currency}{totalOwedToMe.toLocaleString('en-IN')}
             </div>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
@@ -360,7 +360,7 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
           <div>
             <span className="text-xs font-bold uppercase text-slate-500">You owe friends</span>
             <div className="text-2xl font-extrabold text-rose-700 mt-1 privacy-value">
-              -{user.currency}{totalIOwe.toLocaleString()}
+              -{user.currency}{totalIOwe.toLocaleString('en-IN')}
             </div>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold">
@@ -471,14 +471,14 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
                           <div>
                             <span className="text-[10px] font-bold text-emerald-700 uppercase block">owes you</span>
                             <span className="text-xs font-extrabold text-emerald-700 privacy-value">
-                              +{user.currency}{f.netBalance.toLocaleString()}
+                              +{user.currency}{f.netBalance.toLocaleString('en-IN')}
                             </span>
                           </div>
                         ) : f.netBalance < 0 ? (
                           <div>
                             <span className="text-[10px] font-bold text-rose-700 uppercase block">you owe</span>
                             <span className="text-xs font-extrabold text-rose-700 privacy-value">
-                              -{user.currency}{Math.abs(f.netBalance).toLocaleString()}
+                              -{user.currency}{Math.abs(f.netBalance).toLocaleString('en-IN')}
                             </span>
                           </div>
                         ) : (
@@ -546,7 +546,7 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
                       className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-2xs transition active:scale-95 cursor-pointer"
                     >
                       <HandCoins className="w-4 h-4" />
-                      <span>Settle Balance (<span className="privacy-value">{user.currency}{Math.abs(selectedFriend.netBalance).toLocaleString()}</span>)</span>
+                      <span>Settle Balance (<span className="privacy-value">{user.currency}{Math.abs(selectedFriend.netBalance).toLocaleString('en-IN')}</span>)</span>
                     </button>
                   </div>
                 </div>
@@ -557,9 +557,9 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
                     <span className="text-xs font-bold uppercase text-slate-500">Net Standing Balance</span>
                     <div className="text-3xl font-extrabold mt-1">
                       {selectedFriend.netBalance > 0 ? (
-                        <span className="text-emerald-700"><span className="privacy-value">+{user.currency}{selectedFriend.netBalance.toLocaleString()}</span> <span className="text-xs font-semibold text-slate-500">(Owes You)</span></span>
+                        <span className="text-emerald-700"><span className="privacy-value">+{user.currency}{selectedFriend.netBalance.toLocaleString('en-IN')}</span> <span className="text-xs font-semibold text-slate-500">(Owes You)</span></span>
                       ) : selectedFriend.netBalance < 0 ? (
-                        <span className="text-rose-700"><span className="privacy-value">-{user.currency}{Math.abs(selectedFriend.netBalance).toLocaleString()}</span> <span className="text-xs font-semibold text-slate-500">(You Owe)</span></span>
+                        <span className="text-rose-700"><span className="privacy-value">-{user.currency}{Math.abs(selectedFriend.netBalance).toLocaleString('en-IN')}</span> <span className="text-xs font-semibold text-slate-500">(You Owe)</span></span>
                       ) : (
                         <span className="text-slate-700">All Settled Up 🎉</span>
                       )}
@@ -884,7 +884,7 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
                 >
                   {accounts.map(a => (
-                    <option key={a.id} value={a.id}>{a.name} ({a.currency}{a.balance.toLocaleString()})</option>
+                    <option key={a.id} value={a.id}>{a.name} ({a.currency}{a.balance.toLocaleString('en-IN')})</option>
                   ))}
                 </select>
               </div>

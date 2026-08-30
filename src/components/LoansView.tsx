@@ -122,7 +122,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
         <div className="group bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition">
           <span className="text-xs font-bold uppercase text-slate-700">Total Outstanding Principal</span>
           <div className="text-2xl font-extrabold text-slate-900 mt-1 privacy-value">
-            {user.currency}{totalPrincipalRemaining.toLocaleString()}
+            {user.currency}{totalPrincipalRemaining.toLocaleString('en-IN')}
           </div>
           <p className="text-xs text-slate-600 mt-1">Across {activeLoans.length} active loans & EMIs</p>
         </div>
@@ -130,7 +130,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
         <div className="group bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition">
           <span className="text-xs font-bold uppercase text-slate-700">Total Monthly EMI Outflow</span>
           <div className="text-2xl font-extrabold text-rose-600 mt-1 privacy-value">
-            {user.currency}{totalMonthlyEMIs.toLocaleString()}
+            {user.currency}{totalMonthlyEMIs.toLocaleString('en-IN')}
           </div>
           <p className="text-xs text-slate-600 mt-1">Auto-deducted every month</p>
         </div>
@@ -190,7 +190,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
                   <div className="text-right">
                     <span className="text-xs text-slate-700 block">Monthly EMI</span>
                     <span className="font-extrabold text-lg text-slate-900 privacy-value">
-                      {user.currency}{loan.monthlyEMI.toLocaleString()}
+                      {user.currency}{loan.monthlyEMI.toLocaleString('en-IN')}
                     </span>
                   </div>
                 </div>
@@ -213,11 +213,11 @@ export const LoansView: React.FC<LoansViewProps> = ({
                   <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200 text-xs text-slate-700">
                     <div>
                       <span>Remaining Principal:</span>
-                      <p className="font-bold text-slate-900 text-sm privacy-value">{user.currency}{loan.remainingPrincipal.toLocaleString()}</p>
+                      <p className="font-bold text-slate-900 text-sm privacy-value">{user.currency}{loan.remainingPrincipal.toLocaleString('en-IN')}</p>
                     </div>
                     <div>
                       <span>Original Loan Amount:</span>
-                      <p className="font-semibold text-slate-700 text-sm privacy-value">{user.currency}{loan.totalPrincipal.toLocaleString()}</p>
+                      <p className="font-semibold text-slate-700 text-sm privacy-value">{user.currency}{loan.totalPrincipal.toLocaleString('en-IN')}</p>
                     </div>
                   </div>
                 </div>
@@ -394,7 +394,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
                 >
                   {bankAccounts.map(a => (
-                    <option key={a.id} value={a.id}>{a.name} ({a.currency}{a.balance.toLocaleString()})</option>
+                    <option key={a.id} value={a.id}>{a.name} ({a.currency}{a.balance.toLocaleString('en-IN')})</option>
                   ))}
                 </select>
               </div>
@@ -449,7 +449,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
                 >
                   {bankAccounts.map(a => (
                     <option key={a.id} value={a.id}>
-                      {a.name} (Balance: {a.currency}{a.balance.toLocaleString()})
+                      {a.name} (Balance: {a.currency}{a.balance.toLocaleString('en-IN')})
                     </option>
                   ))}
                 </select>

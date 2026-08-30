@@ -566,7 +566,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           <div className="text-xs text-slate-600 flex items-center gap-3">
             <span>
               Net Inflow/Outflow: <strong className={`privacy-value ${netSavings >= 0 ? 'text-emerald-600 font-extrabold' : 'text-rose-600 font-extrabold'}`}>
-                {netSavings >= 0 ? '+' : '-'}{user.currency}{Math.abs(netSavings).toLocaleString()}
+                {netSavings >= 0 ? '+' : '-'}{user.currency}{Math.abs(netSavings).toLocaleString('en-IN')}
               </strong>
             </span>
           </div>
@@ -578,7 +578,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         <div className="group bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition">
           <span className="text-xs font-bold uppercase text-slate-700">Timeline Outflow</span>
           <div className="text-2xl font-extrabold text-slate-900 mt-1 privacy-value">
-            {user.currency}{totalExpenses.toLocaleString()}
+            {user.currency}{totalExpenses.toLocaleString('en-IN')}
           </div>
           <p className="text-xs text-slate-600 mt-1">{expenseTransactions.length} expenses logged</p>
         </div>
@@ -586,7 +586,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         <div className="group bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition">
           <span className="text-xs font-bold uppercase text-slate-700">Timeline Inflow</span>
           <div className="text-2xl font-extrabold text-emerald-700 mt-1 privacy-value">
-            {user.currency}{totalIncome.toLocaleString()}
+            {user.currency}{totalIncome.toLocaleString('en-IN')}
           </div>
           <p className="text-xs text-slate-600 mt-1">{incomeTransactions.length} income deposits</p>
         </div>
@@ -594,7 +594,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         <div className="group bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition">
           <span className="text-xs font-bold uppercase text-slate-700">Active Monthly EMI</span>
           <div className="text-2xl font-extrabold text-rose-700 mt-1 privacy-value">
-            {user.currency}{totalMonthlyEMI.toLocaleString()}
+            {user.currency}{totalMonthlyEMI.toLocaleString('en-IN')}
           </div>
           <p className="text-xs text-slate-600 mt-1">{loans.filter(l => l.status === 'active').length} active loan obligations</p>
         </div>
@@ -602,9 +602,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         <div className="group bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition">
           <span className="text-xs font-bold uppercase text-slate-700">Credit Cards & Debt Due</span>
           <div className="text-2xl font-extrabold text-orange-700 mt-1 privacy-value">
-            {user.currency}{(totalCreditCardDue + totalLoanPrincipalRemaining).toLocaleString()}
+            {user.currency}{(totalCreditCardDue + totalLoanPrincipalRemaining).toLocaleString('en-IN')}
           </div>
-          <p className="text-xs text-slate-600 mt-1">Cards: <span className="privacy-value">{user.currency}{totalCreditCardDue.toLocaleString()}</span> • Loans: <span className="privacy-value">{user.currency}{totalLoanPrincipalRemaining.toLocaleString()}</span></p>
+          <p className="text-xs text-slate-600 mt-1">Cards: <span className="privacy-value">{user.currency}{totalCreditCardDue.toLocaleString('en-IN')}</span> • Loans: <span className="privacy-value">{user.currency}{totalLoanPrincipalRemaining.toLocaleString('en-IN')}</span></p>
         </div>
       </div>
 
@@ -641,7 +641,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                     ))}
                   </Pie>
                   <Tooltip 
-                    formatter={(val: any) => [`${user.currency}${Number(val).toLocaleString()}`, 'Amount']}
+                    formatter={(val: any) => [`${user.currency}${Number(val).toLocaleString('en-IN')}`, 'Amount']}
                     contentStyle={{ backgroundColor: '#0F172A', borderRadius: '12px', color: '#fff', fontSize: '12px' }}
                   />
                   <Legend layout="horizontal" verticalAlign="bottom" align="center" wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
@@ -676,7 +676,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                 <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="#64748B" />
                 <YAxis tick={{ fontSize: 11 }} stroke="#64748B" />
                 <Tooltip 
-                  formatter={(val: any) => [`${user.currency}${Number(val).toLocaleString()}`, '']}
+                  formatter={(val: any) => [`${user.currency}${Number(val).toLocaleString('en-IN')}`, '']}
                   contentStyle={{ backgroundColor: '#0F172A', borderRadius: '12px', color: '#fff', fontSize: '12px' }}
                 />
                 <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
@@ -733,7 +733,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                 <span className="text-indigo-700 font-medium">Top Category:</span>
                 <strong className="text-indigo-950 truncate max-w-[120px]">{categoryTrendInfo.activeCategories[0].name}</strong>
                 <span className="text-indigo-700 font-bold privacy-value">
-                  ({user.currency}{categoryTrendInfo.activeCategories[0].totalInPeriod.toLocaleString()})
+                  ({user.currency}{categoryTrendInfo.activeCategories[0].totalInPeriod.toLocaleString('en-IN')})
                 </span>
               </div>
             )}
@@ -757,7 +757,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                     ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
                     : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200 opacity-60 hover:opacity-100'
                 }`}
-                title={`Toggle ${cat.name} (${user.currency}${cat.totalInPeriod.toLocaleString()})`}
+                title={`Toggle ${cat.name} (${user.currency}${cat.totalInPeriod.toLocaleString('en-IN')})`}
               >
                 <span
                   className="w-2 h-2 rounded-full flex-shrink-0"
@@ -801,7 +801,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                         <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2">
                           <span className="font-bold text-slate-200">{label}</span>
                           <span className="font-extrabold text-emerald-400 privacy-value">
-                            Total: {user.currency}{totalMonth.toLocaleString()}
+                            Total: {user.currency}{totalMonth.toLocaleString('en-IN')}
                           </span>
                         </div>
                         <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
@@ -812,7 +812,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                                 <span className="text-slate-300 truncate">{entry.name}</span>
                               </div>
                               <span className="font-semibold text-white flex-shrink-0 privacy-value">
-                                {user.currency}{Number(entry.value).toLocaleString()}
+                                {user.currency}{Number(entry.value).toLocaleString('en-IN')}
                               </span>
                             </div>
                           ))}
@@ -849,15 +849,15 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         <div className="mt-4 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
           <div className="flex items-center gap-4">
             <span>
-              Period Total: <strong className="text-slate-800 privacy-value">{user.currency}{categoryTrendInfo.grandPeriodTotal.toLocaleString()}</strong>
+              Period Total: <strong className="text-slate-800 privacy-value">{user.currency}{categoryTrendInfo.grandPeriodTotal.toLocaleString('en-IN')}</strong>
             </span>
             <span>
-              Monthly Average: <strong className="text-slate-800 privacy-value">{user.currency}{categoryTrendInfo.averageMonthlySpend.toLocaleString()}</strong>
+              Monthly Average: <strong className="text-slate-800 privacy-value">{user.currency}{categoryTrendInfo.averageMonthlySpend.toLocaleString('en-IN')}</strong>
             </span>
           </div>
           {categoryTrendInfo.peakMonth && categoryTrendInfo.peakMonth.total > 0 && (
             <div className="text-slate-600">
-              Peak Spending: <strong className="text-rose-600">{categoryTrendInfo.peakMonth.fullMonth}</strong> (<span className="privacy-value">{user.currency}{categoryTrendInfo.peakMonth.total.toLocaleString()}</span>)
+              Peak Spending: <strong className="text-rose-600">{categoryTrendInfo.peakMonth.fullMonth}</strong> (<span className="privacy-value">{user.currency}{categoryTrendInfo.peakMonth.total.toLocaleString('en-IN')}</span>)
             </div>
           )}
         </div>
@@ -924,8 +924,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                           </div>
                         </td>
                         <td className="p-3.5 text-right font-medium text-slate-700">{cat.count}</td>
-                        <td className="p-3.5 text-right font-extrabold text-slate-900">{user.currency}{cat.total.toLocaleString()}</td>
-                        <td className="p-3.5 text-right font-medium text-slate-700">{user.currency}{avg.toLocaleString()}</td>
+                        <td className="p-3.5 text-right font-extrabold text-slate-900">{user.currency}{cat.total.toLocaleString('en-IN')}</td>
+                        <td className="p-3.5 text-right font-medium text-slate-700">{user.currency}{avg.toLocaleString('en-IN')}</td>
                         <td className="p-3.5 text-right">
                           <div className="flex items-center justify-end gap-2">
                             <span className="font-bold text-slate-900">{percentage}%</span>
@@ -987,13 +987,13 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                         <td className="p-3.5 font-medium text-slate-700">{acc.bankName || '-'}</td>
                         <td className="p-3.5 text-right font-extrabold">
                           {isCard ? (
-                            <span className="text-rose-700">{acc.currency}{due.toLocaleString()} (Due)</span>
+                            <span className="text-rose-700">{acc.currency}{due.toLocaleString('en-IN')} (Due)</span>
                           ) : (
-                            <span className="text-slate-900">{acc.currency}{acc.balance.toLocaleString()}</span>
+                            <span className="text-slate-900">{acc.currency}{acc.balance.toLocaleString('en-IN')}</span>
                           )}
                         </td>
                         <td className="p-3.5 text-right font-medium text-slate-700">
-                          {isCard ? `${acc.currency}${limit.toLocaleString()}` : '-'}
+                          {isCard ? `${acc.currency}${limit.toLocaleString('en-IN')}` : '-'}
                         </td>
                         <td className="p-3.5 text-right">
                           {isCard ? (
@@ -1063,9 +1063,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                           </div>
                         </td>
                         <td className="p-3.5 font-medium text-slate-700">{loan.lender || '-'}</td>
-                        <td className="p-3.5 text-right font-extrabold text-rose-700">{user.currency}{loan.monthlyEMI.toLocaleString()}</td>
-                        <td className="p-3.5 text-right font-medium text-slate-700">{user.currency}{loan.totalPrincipal.toLocaleString()}</td>
-                        <td className="p-3.5 text-right font-extrabold text-slate-900">{user.currency}{loan.remainingPrincipal.toLocaleString()}</td>
+                        <td className="p-3.5 text-right font-extrabold text-rose-700">{user.currency}{loan.monthlyEMI.toLocaleString('en-IN')}</td>
+                        <td className="p-3.5 text-right font-medium text-slate-700">{user.currency}{loan.totalPrincipal.toLocaleString('en-IN')}</td>
+                        <td className="p-3.5 text-right font-extrabold text-slate-900">{user.currency}{loan.remainingPrincipal.toLocaleString('en-IN')}</td>
                         <td className="p-3.5 text-center">
                           <div className="flex flex-col items-center">
                             <span className="text-[11px] font-bold text-slate-900">{paidMonths}/{loan.totalMonths} months ({progressPercent}%)</span>
@@ -1136,8 +1136,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                           )}
                         </td>
                         <td className="p-3.5 text-right font-extrabold">
-                          {isOwed && <span className="text-emerald-700">+{user.currency}{fr.balance.toLocaleString()} (owes you)</span>}
-                          {owesYou && <span className="text-rose-700">-{user.currency}{Math.abs(fr.balance).toLocaleString()} (you owe)</span>}
+                          {isOwed && <span className="text-emerald-700">+{user.currency}{fr.balance.toLocaleString('en-IN')} (owes you)</span>}
+                          {owesYou && <span className="text-rose-700">-{user.currency}{Math.abs(fr.balance).toLocaleString('en-IN')} (you owe)</span>}
                           {isSettled && <span className="text-slate-600">Settled up ({user.currency}0)</span>}
                         </td>
                         <td className="p-3.5 text-center">
@@ -1198,7 +1198,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                         </td>
                         <td className="p-3.5 text-slate-700">{grp.category}</td>
                         <td className="p-3.5 text-center font-medium text-slate-700">{grp.members.length} members</td>
-                        <td className="p-3.5 text-right font-extrabold text-slate-900">{user.currency}{totalSpend.toLocaleString()}</td>
+                        <td className="p-3.5 text-right font-extrabold text-slate-900">{user.currency}{totalSpend.toLocaleString('en-IN')}</td>
                         <td className="p-3.5 text-right font-medium text-slate-700">{grpTxs.length}</td>
                         <td className="p-3.5 text-slate-700">{grp.createdAt || '-'}</td>
                       </tr>
@@ -1295,7 +1295,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                           </td>
                           <td className="p-3 text-right font-extrabold whitespace-nowrap">
                             <span className={isOutflow ? 'text-slate-900' : 'text-emerald-700'}>
-                              {isOutflow ? '-' : '+'}{user.currency}{tx.amount.toLocaleString()}
+                              {isOutflow ? '-' : '+'}{user.currency}{tx.amount.toLocaleString('en-IN')}
                             </span>
                           </td>
                         </tr>

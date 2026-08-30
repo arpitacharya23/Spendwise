@@ -27,6 +27,7 @@ import {
   DollarSign
 } from 'lucide-react';
 import { Account, Category, Group, LoanEMI, SplitMemberShare, Transaction, UserProfile } from '../types';
+import { getBankForAccount } from '../data/indianBanks';
 
 interface TransactionsViewProps {
   user: UserProfile;
@@ -507,21 +508,21 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
         <div className="group bg-white rounded-2xl p-4 border border-slate-200 shadow-xs hover:shadow-sm transition">
           <span className="text-[11px] font-bold uppercase text-slate-600">Filtered Outflow</span>
           <div className="text-xl font-extrabold text-slate-900 mt-0.5 privacy-value">
-            {user.currency}{totalFilteredOutflow.toLocaleString()}
+            {user.currency}{totalFilteredOutflow.toLocaleString('en-IN')}
           </div>
         </div>
 
         <div className="group bg-white rounded-2xl p-4 border border-slate-200 shadow-xs hover:shadow-sm transition">
           <span className="text-[11px] font-bold uppercase text-slate-600">Filtered Inflow</span>
           <div className="text-xl font-extrabold text-emerald-700 mt-0.5 privacy-value">
-            {user.currency}{totalFilteredInflow.toLocaleString()}
+            {user.currency}{totalFilteredInflow.toLocaleString('en-IN')}
           </div>
         </div>
 
         <div className="group bg-white rounded-2xl p-4 border border-slate-200 shadow-xs hover:shadow-sm transition">
           <span className="text-[11px] font-bold uppercase text-slate-600">Net Balance</span>
           <div className={`text-xl font-extrabold mt-0.5 privacy-value ${netFilteredAmount >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-            {netFilteredAmount >= 0 ? '+' : ''}{user.currency}{netFilteredAmount.toLocaleString()}
+            {netFilteredAmount >= 0 ? '+' : ''}{user.currency}{netFilteredAmount.toLocaleString('en-IN')}
           </div>
         </div>
       </div>
@@ -897,14 +898,14 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                     {/* Credited Total (Green, Minimal) */}
                     {group.dayTotalInflow > 0 && (
                       <span className="text-emerald-600 font-bold privacy-value">
-                        +{user.currency}{group.dayTotalInflow.toLocaleString()}
+                        +{user.currency}{group.dayTotalInflow.toLocaleString('en-IN')}
                       </span>
                     )}
 
                     {/* Debited Total (Red, Minimal) */}
                     {group.dayTotalOutflow > 0 && (
                       <span className="text-rose-600 font-bold privacy-value">
-                        -{user.currency}{group.dayTotalOutflow.toLocaleString()}
+                        -{user.currency}{group.dayTotalOutflow.toLocaleString('en-IN')}
                       </span>
                     )}
 
@@ -919,7 +920,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                       <span className="text-[10px] font-medium uppercase opacity-75">Net</span>
                       <span>
                         {group.dayNet > 0 ? '+' : group.dayNet < 0 ? '-' : ''}
-                        {user.currency}{Math.abs(group.dayNet).toLocaleString()}
+                        {user.currency}{Math.abs(group.dayNet).toLocaleString('en-IN')}
                       </span>
                     </span>
                   </div>
@@ -929,6 +930,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                 <div className="divide-y divide-slate-100">
                   {group.transactions.map((tx) => {
                     const acc = accounts.find(a => a.id === tx.accountId);
+                    const bankInfo = getBankForAccount(acc);
                     const cat = categories.find(c => c.id === tx.categoryId);
                     const grp = groups.find(g => g.id === tx.groupId);
                     const emi = loans.find(l => l.id === tx.emiId);
@@ -944,7 +946,9 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                         {/* Left Column: Icon + Title + Badges + Subtitle */}
                         <div className="flex items-center space-x-3.5 min-w-0 flex-1">
                           <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                            tx.type === 'income' 
+                            bankInfo
+                              ? 'bg-white border border-slate-200/80 shadow-2xs p-1.5'
+                              : tx.type === 'income' 
                               ? 'bg-emerald-100 text-emerald-600' 
                               : tx.type === 'emi_payment'
                               ? 'bg-indigo-100 text-indigo-600'
@@ -954,7 +958,19 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                               ? 'bg-purple-100 text-purple-600'
                               : 'bg-slate-100 text-slate-700'
                           }`}>
-                            {tx.type === 'income' ? (
+                            {bankInfo ? (
+                              <img
+                                src={bankInfo.symbolUrl}
+                                alt={bankInfo.name}
+                                className="w-6 h-6 object-contain"
+                                onError={(e) => {
+                                  const target = e.currentTarget;
+                                  if (!target.src.endsWith('.png')) {
+                                    target.src = bankInfo.symbolPngUrl;
+                                  }
+                                }}
+                              />
+                            ) : tx.type === 'income' ? (
                               <ArrowDownLeft className="w-5 h-5" />
                             ) : tx.type === 'emi_payment' ? (
                               <Landmark className="w-5 h-5" />
@@ -1021,7 +1037,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                         {/* Right Column: Amount only */}
                         <div className="text-right flex-shrink-0 pl-3">
                           <div className={`font-extrabold text-sm privacy-value ${isExpense ? 'text-rose-600' : 'text-emerald-600'}`}>
-                            {isExpense ? '-' : '+'}{user.currency}{tx.amount.toLocaleString()}
+                            {isExpense ? '-' : '+'}{user.currency}{tx.amount.toLocaleString('en-IN')}
                           </div>
                         </div>
                       </div>
@@ -1234,7 +1250,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                 <div>
                   <span className="text-[10px] font-bold uppercase text-slate-600 block">Total Amount</span>
                   <span className={`text-2xl font-extrabold ${(selectedTxDetail.type === 'expense' || selectedTxDetail.type === 'emi_payment' || (selectedTxDetail.type === 'settlement' && selectedTxDetail.notes?.includes('Paid to'))) ? 'text-rose-600' : 'text-emerald-600'}`}>
-                    {(selectedTxDetail.type === 'expense' || selectedTxDetail.type === 'emi_payment' || (selectedTxDetail.type === 'settlement' && selectedTxDetail.notes?.includes('Paid to'))) ? '-' : '+'}{user.currency}{selectedTxDetail.amount.toLocaleString()}
+                    {(selectedTxDetail.type === 'expense' || selectedTxDetail.type === 'emi_payment' || (selectedTxDetail.type === 'settlement' && selectedTxDetail.notes?.includes('Paid to'))) ? '-' : '+'}{user.currency}{selectedTxDetail.amount.toLocaleString('en-IN')}
                   </span>
                 </div>
               </div>
@@ -1302,7 +1318,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                             {split.memberName}
                           </span>
                           <span className="font-bold text-slate-800">
-                            {user.currency}{split.shareAmount.toLocaleString()}
+                            {user.currency}{split.shareAmount.toLocaleString('en-IN')}
                           </span>
                         </div>
                       ))}

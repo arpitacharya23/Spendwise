@@ -115,7 +115,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
             id: `notif-emi-overdue-${loan.id}-${loan.nextDueDate}`,
             type: 'emi_overdue',
             title: `Overdue EMI: ${loan.name}`,
-            description: `Payment of ${user.currency}${loan.monthlyEMI.toLocaleString()} was due ${Math.abs(diffDays)} day${Math.abs(diffDays) === 1 ? '' : 's'} ago (${loan.nextDueDate}).`,
+            description: `Payment of ${user.currency}${loan.monthlyEMI.toLocaleString('en-IN')} was due ${Math.abs(diffDays)} day${Math.abs(diffDays) === 1 ? '' : 's'} ago (${loan.nextDueDate}).`,
             timestamp: loan.nextDueDate,
             severity: 'urgent',
             actionTab: 'loans',
@@ -128,8 +128,8 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
             type: 'emi_due',
             title: `Upcoming EMI: ${loan.name}`,
             description: diffDays === 0 
-              ? `Monthly installment of ${user.currency}${loan.monthlyEMI.toLocaleString()} is due TODAY!`
-              : `Monthly installment of ${user.currency}${loan.monthlyEMI.toLocaleString()} is due in ${diffDays} day${diffDays === 1 ? '' : 's'} (${loan.nextDueDate}).`,
+              ? `Monthly installment of ${user.currency}${loan.monthlyEMI.toLocaleString('en-IN')} is due TODAY!`
+              : `Monthly installment of ${user.currency}${loan.monthlyEMI.toLocaleString('en-IN')} is due in ${diffDays} day${diffDays === 1 ? '' : 's'} (${loan.nextDueDate}).`,
             timestamp: loan.nextDueDate,
             severity: diffDays <= 2 ? 'urgent' : 'warning',
             actionTab: 'loans',
@@ -150,8 +150,8 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
             type: 'low_balance',
             title: isNegative ? `Overdrawn Balance: ${acc.name}` : `Low Bank Balance: ${acc.name}`,
             description: isNegative 
-              ? `Your account balance is negative at ${user.currency}${acc.balance.toLocaleString()}. Immediate deposit recommended.`
-              : `Available balance is low at ${user.currency}${acc.balance.toLocaleString()} (threshold: ${user.currency}2,500).`,
+              ? `Your account balance is negative at ${user.currency}${acc.balance.toLocaleString('en-IN')}. Immediate deposit recommended.`
+              : `Available balance is low at ${user.currency}${acc.balance.toLocaleString('en-IN')} (threshold: ${user.currency}2,500).`,
             timestamp: acc.updatedAt || new Date().toISOString(),
             severity: isNegative ? 'urgent' : 'warning',
             actionTab: 'accounts',
@@ -176,8 +176,8 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
               type: 'credit_card_due',
               title: `Card Bill Due: ${card.name}`,
               description: diffDays < 0 
-                ? `Payment of ${user.currency}${card.dueAmount.toLocaleString()} is overdue!`
-                : `Payment of ${user.currency}${card.dueAmount.toLocaleString()} is due in ${diffDays} day${diffDays === 1 ? '' : 's'} (${card.dueDate}).`,
+                ? `Payment of ${user.currency}${card.dueAmount.toLocaleString('en-IN')} is overdue!`
+                : `Payment of ${user.currency}${card.dueAmount.toLocaleString('en-IN')} is due in ${diffDays} day${diffDays === 1 ? '' : 's'} (${card.dueDate}).`,
               timestamp: card.dueDate,
               severity: diffDays <= 1 ? 'urgent' : 'warning',
               actionTab: 'accounts',
@@ -195,7 +195,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
               id: `notif-card-limit-${card.id}`,
               type: 'credit_card_due',
               title: `High Credit Utilization: ${card.name}`,
-              description: `You have used ${utilRatio.toFixed(0)}% of your credit limit (${user.currency}${card.dueAmount.toLocaleString()} of ${user.currency}${card.creditLimit.toLocaleString()}).`,
+              description: `You have used ${utilRatio.toFixed(0)}% of your credit limit (${user.currency}${card.dueAmount.toLocaleString('en-IN')} of ${user.currency}${card.creditLimit.toLocaleString('en-IN')}).`,
               timestamp: card.updatedAt || new Date().toISOString(),
               severity: 'warning',
               actionTab: 'accounts',
@@ -221,7 +221,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
         id: `notif-group-tx-${tx.id}`,
         type: 'group_expense',
         title: `Group Expense: ${group?.name || 'Splitwise Group'}`,
-        description: `"${tx.title}" of ${user.currency}${tx.amount.toLocaleString()} was added ${isPaidByMe ? 'by you' : ''}.`,
+        description: `"${tx.title}" of ${user.currency}${tx.amount.toLocaleString('en-IN')} was added ${isPaidByMe ? 'by you' : ''}.`,
         timestamp: tx.date || tx.createdAt || new Date().toISOString(),
         severity: 'info',
         actionTab: 'groups',

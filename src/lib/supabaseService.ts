@@ -243,7 +243,7 @@ export async function saveSupabaseProfile(
       email: profile.email,
       currency: profile.currency,
       avatar_color: profile.avatarColor,
-      //avatar_url: profile.avatarUrl ?? null,
+      avatar_url: profile.avatarUrl ?? null,
       phone: profile.phone ?? null,
       country_code: profile.countryCode ?? "+91",
       monthly_budget: profile.monthlyBudget,

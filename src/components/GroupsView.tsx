@@ -380,8 +380,8 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
           actorName: payer?.name || user.name,
           actorAvatarColor: payer?.avatarColor || '#3B82F6',
           message: isSettlement 
-            ? `${payer?.name || user.name} settled ${user.currency}${tx.amount.toLocaleString()}`
-            : `${payer?.name || user.name} added "${tx.title}" (${user.currency}${tx.amount.toLocaleString()})`,
+            ? `${payer?.name || user.name} settled ${user.currency}${tx.amount.toLocaleString('en-IN')}`
+            : `${payer?.name || user.name} added "${tx.title}" (${user.currency}${tx.amount.toLocaleString('en-IN')})`,
           tx,
           details: {
             txId: tx.id,
@@ -724,7 +724,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
             <div className="flex flex-wrap items-center gap-3">
               <div className="group bg-slate-800/80 px-4 py-2 rounded-xl border border-slate-700 text-right">
                 <span className="text-[10px] uppercase text-slate-400 block font-medium">Total Group Spend</span>
-                <span className="text-lg font-bold text-emerald-400 privacy-value">{activeGroup.currency}{totalGroupSpend.toLocaleString()}</span>
+                <span className="text-lg font-bold text-emerald-400 privacy-value">{activeGroup.currency}{totalGroupSpend.toLocaleString('en-IN')}</span>
               </div>
 
               <button
@@ -916,7 +916,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
                                     <p className="text-xs font-semibold text-slate-900">{item.message}</p>
                                     {item.details?.amount && (
                                       <span className="text-sm font-extrabold text-emerald-700 privacy-value">
-                                        {user.currency}{item.details.amount.toLocaleString()}
+                                        {user.currency}{item.details.amount.toLocaleString('en-IN')}
                                       </span>
                                     )}
                                   </div>
@@ -978,7 +978,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
 
                                   <div className="flex flex-col items-end flex-shrink-0">
                                     <span className="text-base font-extrabold text-slate-900 privacy-value">
-                                      {user.currency}{amount.toLocaleString()}
+                                      {user.currency}{amount.toLocaleString('en-IN')}
                                     </span>
 
                                     {/* Action Buttons */}
@@ -1135,7 +1135,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
                             )}
                           </div>
                           <p className="text-[11px] text-slate-500 mt-0.5">
-                            {mem.email} • Paid: <span className="privacy-value font-medium text-slate-700">{user.currency}{balance ? Math.round(balance.paid).toLocaleString() : 0}</span> • Share: <span className="privacy-value font-medium text-slate-700">{user.currency}{balance ? Math.round(balance.share).toLocaleString() : 0}</span>
+                            {mem.email} • Paid: <span className="privacy-value font-medium text-slate-700">{user.currency}{balance ? Math.round(balance.paid).toLocaleString('en-IN') : 0}</span> • Share: <span className="privacy-value font-medium text-slate-700">{user.currency}{balance ? Math.round(balance.share).toLocaleString('en-IN') : 0}</span>
                           </p>
                         </div>
                       </div>
@@ -1146,12 +1146,12 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
                         <div>
                           {isOwed ? (
                             <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2.5 py-1 rounded-full">
-                              <span>+{user.currency}{Math.round(net).toLocaleString()}</span>
+                              <span>+{user.currency}{Math.round(net).toLocaleString('en-IN')}</span>
                               <span className="text-[10px] font-medium opacity-80">(gets back)</span>
                             </span>
                           ) : owes ? (
                             <span className="inline-flex items-center gap-1 text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200/80 px-2.5 py-1 rounded-full">
-                              <span>-{user.currency}{Math.round(Math.abs(net)).toLocaleString()}</span>
+                              <span>-{user.currency}{Math.round(Math.abs(net)).toLocaleString('en-IN')}</span>
                               <span className="text-[10px] font-medium opacity-80">(owes)</span>
                             </span>
                           ) : (

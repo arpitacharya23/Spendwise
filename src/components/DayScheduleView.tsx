@@ -413,21 +413,21 @@ export const DayScheduleView: React.FC<DayScheduleViewProps> = ({
         <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
           <span className="text-[11px] font-bold uppercase text-slate-600">Total Income</span>
           <div className="text-lg sm:text-xl font-extrabold text-emerald-700 mt-0.5">
-            +{user.currency}{daySummary.income.toLocaleString()}
+            +{user.currency}{daySummary.income.toLocaleString('en-IN')}
           </div>
         </div>
 
         <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
           <span className="text-[11px] font-bold uppercase text-slate-600">Total Expense</span>
           <div className="text-lg sm:text-xl font-extrabold text-rose-700 mt-0.5">
-            -{user.currency}{daySummary.expense.toLocaleString()}
+            -{user.currency}{daySummary.expense.toLocaleString('en-IN')}
           </div>
         </div>
 
         <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
           <span className="text-[11px] font-bold uppercase text-slate-600">Net Day Cashflow</span>
           <div className={`text-lg sm:text-xl font-extrabold mt-0.5 ${daySummary.net >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-            {daySummary.net >= 0 ? '+' : ''}{user.currency}{daySummary.net.toLocaleString()}
+            {daySummary.net >= 0 ? '+' : ''}{user.currency}{daySummary.net.toLocaleString('en-IN')}
           </div>
         </div>
 
@@ -632,7 +632,7 @@ export const DayScheduleView: React.FC<DayScheduleViewProps> = ({
                                       <ArrowUpRight className="w-3.5 h-3.5 text-emerald-600" />
                                     )}
                                     <span>
-                                      {tx.isExpense ? '-' : '+'}{user.currency}{tx.amount.toLocaleString()}
+                                      {tx.isExpense ? '-' : '+'}{user.currency}{tx.amount.toLocaleString('en-IN')}
                                     </span>
                                   </div>
 
@@ -742,7 +742,7 @@ export const DayScheduleView: React.FC<DayScheduleViewProps> = ({
                               : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                           }`}
                         >
-                          {tx.isExpense ? '-' : '+'}{user.currency}{tx.amount.toLocaleString()}
+                          {tx.isExpense ? '-' : '+'}{user.currency}{tx.amount.toLocaleString('en-IN')}
                         </div>
                       </div>
 

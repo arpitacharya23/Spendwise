@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, User, Mail, DollarSign, Check, Phone } from 'lucide-react';
+import { X, User, Mail, DollarSign, Check, Phone, Image as ImageIcon } from 'lucide-react';
 import { UserProfile } from '../types';
 
 interface ProfileModalProps {
@@ -46,6 +46,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const [currency, setCurrency] = useState(user.currency || '₹');
   const [phone, setPhone] = useState(user.phone || '');
   const [countryCode, setCountryCode] = useState(user.countryCode || '+91');
+  const [avatarUrl, setAvatarUrl] = useState(user.avatarUrl || '');
 
   const selectedCountry = COUNTRY_CODES.find((entry) => entry.code === countryCode) || COUNTRY_CODES[3];
 
@@ -59,8 +60,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       email: email.trim() || user.email,
       currency,
       avatarColor: user.avatarColor,
+      avatarUrl: avatarUrl.trim() || undefined,
       phone: phone.trim() || undefined,
       countryCode,
+      monthlyBudget: user.monthlyBudget,
     });
     onClose();
   };
@@ -91,6 +94,45 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
         {/* Modal Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
+
+          {/* Avatar Preview & URL */}
+          <div className="flex items-center gap-4 p-3 bg-slate-50 border border-slate-100 rounded-2xl">
+            {avatarUrl.trim() ? (
+              <img
+                src={avatarUrl.trim()}
+                alt={name || 'User'}
+                className="w-14 h-14 rounded-2xl object-cover border border-slate-200 shadow-xs"
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  (e.currentTarget as HTMLElement).style.display = 'none';
+                }}
+              />
+            ) : (
+              <div
+                className="w-14 h-14 rounded-2xl flex items-center justify-center text-white text-lg font-bold shadow-xs flex-shrink-0"
+                style={{ backgroundColor: user.avatarColor || '#3B82F6' }}
+              >
+                {(name || email || 'U').split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U'}
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                Avatar Image URL
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                  <ImageIcon className="w-3.5 h-3.5" />
+                </div>
+                <input
+                  type="url"
+                  value={avatarUrl}
+                  onChange={(e) => setAvatarUrl(e.target.value)}
+                  placeholder="https://example.com/avatar.jpg"
+                  className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-blue-600 transition"
+                />
+              </div>
+            </div>
+          </div>
 
           {/* Full Name */}
           <div>

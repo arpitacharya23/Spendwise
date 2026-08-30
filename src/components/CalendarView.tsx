@@ -386,21 +386,21 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             <div className="group bg-white rounded-2xl p-4 border border-slate-200 shadow-xs hover:shadow-sm transition">
               <span className="text-[11px] font-bold uppercase text-slate-600">Month Total Income</span>
               <div className="text-xl font-extrabold text-emerald-700 mt-0.5 privacy-value">
-                +{user.currency}{monthlySummary.totalIncome.toLocaleString()}
+                +{user.currency}{monthlySummary.totalIncome.toLocaleString('en-IN')}
               </div>
             </div>
 
             <div className="group bg-white rounded-2xl p-4 border border-slate-200 shadow-xs hover:shadow-sm transition">
               <span className="text-[11px] font-bold uppercase text-slate-600">Month Total Expense</span>
               <div className="text-xl font-extrabold text-rose-700 mt-0.5 privacy-value">
-                -{user.currency}{monthlySummary.totalExpense.toLocaleString()}
+                -{user.currency}{monthlySummary.totalExpense.toLocaleString('en-IN')}
               </div>
             </div>
 
             <div className="group bg-white rounded-2xl p-4 border border-slate-200 shadow-xs hover:shadow-sm transition">
               <span className="text-[11px] font-bold uppercase text-slate-600">Net Month Flow</span>
               <div className={`text-xl font-extrabold mt-0.5 privacy-value ${monthlySummary.net >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                {monthlySummary.net >= 0 ? '+' : ''}{user.currency}{monthlySummary.net.toLocaleString()}
+                {monthlySummary.net >= 0 ? '+' : ''}{user.currency}{monthlySummary.net.toLocaleString('en-IN')}
               </div>
             </div>
 
@@ -565,13 +565,13 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                         <div className="space-y-0.5 mt-1">
                           {hasIncome && (
                             <div className="text-[11px] sm:text-xs font-extrabold text-emerald-700 truncate tracking-tight text-right drop-shadow-2xs privacy-value">
-                              +{user.currency}{Math.round(totals.income).toLocaleString()}
+                              +{user.currency}{Math.round(totals.income).toLocaleString('en-IN')}
                             </div>
                           )}
 
                           {hasExpense && (
                             <div className="text-[11px] sm:text-xs font-extrabold text-rose-700 truncate tracking-tight text-right drop-shadow-2xs privacy-value">
-                              -{user.currency}{Math.round(totals.expense).toLocaleString()}
+                              -{user.currency}{Math.round(totals.expense).toLocaleString('en-IN')}
                             </div>
                           )}
 
@@ -652,14 +652,14 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                   <div className="group p-3 bg-emerald-50/70 border border-emerald-100 rounded-2xl">
                     <span className="text-[10px] font-bold uppercase text-emerald-700 block">Total Income</span>
                     <div className="text-base font-extrabold text-emerald-800 mt-0.5 privacy-value">
-                      +{user.currency}{selectedDateSummary.income.toLocaleString()}
+                      +{user.currency}{selectedDateSummary.income.toLocaleString('en-IN')}
                     </div>
                   </div>
 
                   <div className="group p-3 bg-rose-50/70 border border-rose-100 rounded-2xl">
                     <span className="text-[10px] font-bold uppercase text-rose-700 block">Total Expense</span>
                     <div className="text-base font-extrabold text-rose-800 mt-0.5 privacy-value">
-                      -{user.currency}{selectedDateSummary.expense.toLocaleString()}
+                      -{user.currency}{selectedDateSummary.expense.toLocaleString('en-IN')}
                     </div>
                   </div>
                 </div>
@@ -717,7 +717,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
                             <div className="flex items-center gap-2 flex-shrink-0">
                               <div className={`font-extrabold text-xs text-right privacy-value ${isExpense ? 'text-rose-700' : 'text-emerald-700'}`}>
-                                {isExpense ? '-' : '+'}{user.currency}{tx.amount.toLocaleString()}
+                                {isExpense ? '-' : '+'}{user.currency}{tx.amount.toLocaleString('en-IN')}
                               </div>
 
                               <div className="flex items-center">
