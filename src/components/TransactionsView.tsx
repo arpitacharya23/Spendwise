@@ -1070,46 +1070,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                           </div>
 
                           {/* Action Buttons */}
-                          <div className="flex items-center space-x-1 pl-1.5 border-l border-slate-100">
-                            {canTransact ? (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleOpenEdit(tx);
-                                  }}
-                                  className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition cursor-pointer"
-                                  title="Edit Transaction"
-                                >
-                                  <Edit3 className="w-4 h-4" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setDeletingTxId(tx.id);
-                                  }}
-                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                                  title="Delete Transaction"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedTxDetail(tx);
-                                }}
-                                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition cursor-pointer"
-                                title="View Details"
-                              >
-                                <Eye className="w-4 h-4" />
-                              </button>
-                            )}
-                          </div>
+
                         </div>
                       </div>
                     );
