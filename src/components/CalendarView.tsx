@@ -21,6 +21,7 @@ import {
 import { Account, Category, Group, LoanEMI, Transaction, UserProfile } from '../types';
 import { CategoryIcon } from './CategoryIcon';
 import { DayScheduleView } from './DayScheduleView';
+import { getAccountAccess, canUserTransactAccount } from '../lib/accountPermissions';
 
 interface CalendarViewProps {
   user: UserProfile;
@@ -275,6 +276,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
   // Open Edit Modal
   const handleOpenEdit = (tx: Transaction) => {
+    const acc = accounts.find(a => a.id === tx.accountId);
+    if (acc && !canUserTransactAccount(acc, user.email)) {
+      return;
+    }
     setEditingTx(tx);
     setEditTitle(tx.title);
     setEditAmount(String(tx.amount));
@@ -288,6 +293,18 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTx || !editTitle || !editAmount) return;
+
+    // Permissions check
+    const currentAcc = accounts.find(a => a.id === editingTx.accountId);
+    if (currentAcc && !canUserTransactAccount(currentAcc, user.email)) {
+      setEditingTx(null);
+      return;
+    }
+    const newAcc = accounts.find(a => a.id === editAccountId);
+    if (newAcc && !canUserTransactAccount(newAcc, user.email)) {
+      setEditingTx(null);
+      return;
+    }
 
     onEditTransaction(editingTx.id, {
       title: editTitle,
@@ -678,6 +695,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                         const grp = groups.find(g => g.id === tx.groupId);
                         const emi = loans.find(l => l.id === tx.emiId);
                         const isExpense = tx.type === 'expense' || tx.type === 'emi_payment' || (tx.type === 'settlement' && tx.notes?.includes('Paid to'));
+                        const canTransact = acc ? canUserTransactAccount(acc, user.email) : true;
 
                         return (
                           <div 
@@ -721,20 +739,28 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                               </div>
 
                               <div className="flex items-center">
-                                <button
-                                  onClick={() => handleOpenEdit(tx)}
-                                  className="p-1 text-slate-400 hover:text-amber-600 transition"
-                                  title="Edit"
-                                >
-                                  <Edit3 className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => onDeleteTransaction(tx.id)}
-                                  className="p-1 text-slate-400 hover:text-rose-600 transition"
-                                  title="Delete"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+                                {canTransact ? (
+                                  <>
+                                    <button
+                                      onClick={() => handleOpenEdit(tx)}
+                                      className="p-1 text-slate-400 hover:text-amber-600 transition cursor-pointer"
+                                      title="Edit"
+                                    >
+                                      <Edit3 className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => onDeleteTransaction(tx.id)}
+                                      className="p-1 text-slate-400 hover:text-rose-600 transition cursor-pointer"
+                                      title="Delete"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </>
+                                ) : (
+                                  <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
+                                    View Only
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -830,11 +856,14 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                     onChange={(e) => setEditAccountId(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800"
                   >
-                    {accounts.map(acc => (
-                      <option key={acc.id} value={acc.id}>
-                        {acc.name}
-                      </option>
-                    ))}
+                    {accounts.map(acc => {
+                      const access = getAccountAccess(acc, user.email);
+                      return (
+                        <option key={acc.id} value={acc.id} disabled={!access.canTransact}>
+                          {acc.name} {!access.canTransact ? '(View Only)' : ''}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
               </div>

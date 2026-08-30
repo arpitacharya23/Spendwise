@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Account, AccountPermission, UserProfile } from '../types';
 import { INDIAN_BANKS } from '../data/indianBanks';
+import { getAccountAccess } from '../lib/accountPermissions';
 
 interface AccountsViewProps {
   user: UserProfile;
@@ -108,7 +109,13 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   const bankAccounts = accounts.filter(a => a.type === 'bank' || a.type === 'cash');
   const creditCards = accounts.filter(a => a.type === 'credit_card');
 
+  // Accounts available for transacting / transfers / paying bills
+  const transferableBankAccounts = bankAccounts.filter(a => getAccountAccess(a, user.email).canTransact);
+  const payableBankAccounts = bankAccounts.filter(a => getAccountAccess(a, user.email).canTransact);
+
   const handleOpenEditAccount = (acc: Account) => {
+    const access = getAccountAccess(acc, user.email);
+    if (!access.canEdit) return;
     setEditingAccount(acc);
     setEditName(acc.name);
     setEditType((acc.type === 'credit_card' || acc.type === 'cash') ? acc.type : 'bank');
@@ -124,6 +131,8 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   const handleSaveEditAccount = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingAccount || !editName) return;
+    const access = getAccountAccess(editingAccount, user.email);
+    if (!access.canEdit) return;
 
     if (onEditAccount) {
       onEditAccount(editingAccount.id, {
@@ -142,7 +151,13 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   };
 
   const handleConfirmDelete = () => {
-    if (deletingAccountId && onDeleteAccount) {
+    if (!deletingAccountId) return;
+    const target = accounts.find(a => a.id === deletingAccountId);
+    if (!target || !getAccountAccess(target, user.email).canDelete) {
+      setDeletingAccountId(null);
+      return;
+    }
+    if (onDeleteAccount) {
       onDeleteAccount(deletingAccountId);
     }
     setDeletingAccountId(null);
@@ -180,6 +195,8 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   const handleAddSharePermission = (e: React.FormEvent) => {
     e.preventDefault();
     if (!sharingAccount || !shareEmail) return;
+    const access = getAccountAccess(sharingAccount, user.email);
+    if (!access.canManagePermissions) return;
 
     const newPerm: AccountPermission = {
       email: shareEmail,
@@ -188,7 +205,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
       addedAt: new Date().toISOString().split('T')[0],
     };
 
-    const updated = [...(sharingAccount.sharedWith || []), newPerm];
+    const updated = [...(sharingAccount.sharedWith || []).filter(p => p.email.toLowerCase() !== shareEmail.toLowerCase()), newPerm];
     onUpdateAccountPermissions(sharingAccount.id, updated);
     setSharingAccount({ ...sharingAccount, sharedWith: updated });
     setShareEmail('');
@@ -197,6 +214,9 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
   const handleRemovePermission = (email: string) => {
     if (!sharingAccount) return;
+    const access = getAccountAccess(sharingAccount, user.email);
+    if (!access.canManagePermissions) return;
+
     const updated = (sharingAccount.sharedWith || []).filter(p => p.email !== email);
     onUpdateAccountPermissions(sharingAccount.id, updated);
     setSharingAccount({ ...sharingAccount, sharedWith: updated });
@@ -205,6 +225,9 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   const handleExecuteTransfer = (e: React.FormEvent) => {
     e.preventDefault();
     if (!transferFrom || !transferTo || !transferAmount || transferFrom === transferTo) return;
+    const fromAcc = accounts.find(a => a.id === transferFrom);
+    if (!fromAcc || !getAccountAccess(fromAcc, user.email).canTransact) return;
+
     onTransferFunds(transferFrom, transferTo, Number(transferAmount), transferNote || 'Account transfer');
     setIsTransferModalOpen(false);
     setTransferAmount('');
@@ -214,6 +237,10 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   const handleExecutePayCard = (e: React.FormEvent) => {
     e.preventDefault();
     if (!payingCard || !payFromBank || !payAmount) return;
+    const fromBankAcc = accounts.find(a => a.id === payFromBank);
+    if (!fromBankAcc || !getAccountAccess(fromBankAcc, user.email).canTransact) return;
+    if (!getAccountAccess(payingCard, user.email).canTransact) return;
+
     onPayCreditCardDue(payingCard.id, payFromBank, Number(payAmount));
     setPayingCard(null);
     setPayAmount('');
@@ -300,6 +327,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
           const due = acc.dueAmount || 0;
           const limit = acc.creditLimit || 0;
           const available = Math.max(0, limit - due);
+          const access = getAccountAccess(acc, user.email);
 
           return (
             <div
@@ -311,15 +339,34 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                 <div className="flex items-start justify-between">
                   <div className="flex items-center space-x-3">
                     <div
-                      className="w-11 h-11 rounded-2xl flex items-center justify-center text-white font-bold text-sm shadow-sm"
+                      className="w-11 h-11 rounded-2xl flex items-center justify-center text-white font-bold text-sm shadow-sm flex-shrink-0"
                       style={{ backgroundColor: acc.color }}
                     >
                       {isCard ? <CreditCard className="w-5 h-5" /> : <Landmark className="w-5 h-5" />}
                     </div>
                     <div>
-                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-100 text-slate-700">
-                        {acc.type.replace('_', ' ')}
-                      </span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+                          {acc.type.replace('_', ' ')}
+                        </span>
+                        {!access.isOwner && (
+                          <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                            access.role === 'view'
+                              ? 'bg-amber-50 text-amber-700 border-amber-200/80'
+                              : access.role === 'edit'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200/80'
+                              : 'bg-blue-50 text-blue-700 border-blue-200/80'
+                          }`}>
+                            {access.role === 'view' ? (
+                              <><Eye className="w-3 h-3 text-amber-600" /> View Only</>
+                            ) : access.role === 'edit' ? (
+                              <><Edit3 className="w-3 h-3 text-emerald-600" /> Can Edit</>
+                            ) : (
+                              <><ShieldCheck className="w-3 h-3 text-blue-600" /> Admin</>
+                            )}
+                          </span>
+                        )}
+                      </div>
                       <h3 className="font-bold text-base text-slate-900 mt-1">{acc.name}</h3>
                       <p className="text-xs text-slate-700">
                         {acc.bankName} {acc.accountNumberLast4 ? `•••• ${acc.accountNumberLast4}` : ''}
@@ -328,26 +375,30 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                   </div>
 
                   <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => handleOpenEditAccount(acc)}
-                      className="p-2 rounded-xl hover:bg-slate-100 text-slate-500 hover:text-amber-600 transition"
-                      title="Edit Account"
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </button>
+                    {/* Only show Edit button if user has Edit permissions */}
+                    {access.canEdit && (
+                      <button
+                        onClick={() => handleOpenEditAccount(acc)}
+                        className="p-2 rounded-xl hover:bg-slate-100 text-slate-500 hover:text-amber-600 transition cursor-pointer"
+                        title="Edit Account"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                    )}
 
                     <button
                       onClick={() => setSharingAccount(acc)}
-                      className="p-2 rounded-xl hover:bg-slate-100 text-slate-500 hover:text-blue-600 transition"
-                      title="Manage Shared Permissions"
+                      className="p-2 rounded-xl hover:bg-slate-100 text-slate-500 hover:text-blue-600 transition cursor-pointer"
+                      title={access.canManagePermissions ? "Manage Shared Permissions" : "View People with Access"}
                     >
                       <Share2 className="w-4 h-4" />
                     </button>
 
-                    {onDeleteAccount && (
+                    {/* Only show Delete button if user is the Owner */}
+                    {access.canDelete && onDeleteAccount && (
                       <button
                         onClick={() => setDeletingAccountId(acc.id)}
-                        className="p-2 rounded-xl hover:bg-slate-100 text-slate-500 hover:text-rose-600 transition"
+                        className="p-2 rounded-xl hover:bg-slate-100 text-slate-500 hover:text-rose-600 transition cursor-pointer"
                         title="Delete Account"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -386,12 +437,20 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                   )}
                 </div>
 
-                {/* Shared Friends (Only shown if account is shared) */}
-                {acc.sharedWith && acc.sharedWith.length > 0 && (
+                {/* Shared Information */}
+                {access.isOwner && acc.sharedWith && acc.sharedWith.length > 0 && (
                   <div className="mt-3.5 flex items-center gap-2 text-xs text-indigo-700 bg-indigo-50/80 px-3 py-2 rounded-xl border border-indigo-100/90">
                     <Users className="w-3.5 h-3.5 flex-shrink-0 text-indigo-600" />
                     <span className="truncate">
                       Shared with: <strong className="font-semibold text-indigo-900">{acc.sharedWith.map(p => p.name || (p.email ? p.email.split('@')[0] : 'Member')).join(', ')}</strong>
+                    </span>
+                  </div>
+                )}
+                {!access.isOwner && (
+                  <div className="mt-3.5 flex items-center gap-2 text-xs text-slate-700 bg-slate-100/80 px-3 py-2 rounded-xl border border-slate-200">
+                    <Users className="w-3.5 h-3.5 flex-shrink-0 text-slate-500" />
+                    <span className="truncate">
+                      Owner: <strong className="font-semibold text-slate-900">{acc.ownerEmail || 'Account Owner'}</strong>
                     </span>
                   </div>
                 )}
@@ -400,25 +459,39 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
               {/* Bottom Actions */}
               <div className="mt-4 pt-3 border-t border-slate-100 flex items-center gap-2">
                 {isCard ? (
-                  <button
-                    onClick={() => {
-                      setPayingCard(acc);
-                      setPayAmount(String(acc.dueAmount || 0));
-                    }}
-                    className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold shadow-sm transition"
-                  >
-                    Pay Credit Card Due
-                  </button>
+                  access.canTransact ? (
+                    <button
+                      onClick={() => {
+                        setPayingCard(acc);
+                        setPayAmount(String(acc.dueAmount || 0));
+                      }}
+                      className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold shadow-sm transition cursor-pointer"
+                    >
+                      Pay Credit Card Due
+                    </button>
+                  ) : (
+                    <div className="w-full py-2 bg-slate-100 text-slate-500 rounded-xl text-xs font-medium text-center flex items-center justify-center gap-1.5 cursor-not-allowed">
+                      <Eye className="w-3.5 h-3.5 text-slate-400" />
+                      <span>View Only Access (Payments Restricted)</span>
+                    </div>
+                  )
                 ) : (
-                  <button
-                    onClick={() => {
-                      setTransferFrom(acc.id);
-                      setIsTransferModalOpen(true);
-                    }}
-                    className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-semibold transition"
-                  >
-                    Transfer from this Account
-                  </button>
+                  access.canTransact ? (
+                    <button
+                      onClick={() => {
+                        setTransferFrom(acc.id);
+                        setIsTransferModalOpen(true);
+                      }}
+                      className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-semibold transition cursor-pointer"
+                    >
+                      Transfer from this Account
+                    </button>
+                  ) : (
+                    <div className="w-full py-2 bg-slate-100 text-slate-500 rounded-xl text-xs font-medium text-center flex items-center justify-center gap-1.5 cursor-not-allowed">
+                      <Eye className="w-3.5 h-3.5 text-slate-400" />
+                      <span>View Only Access (Transfers Restricted)</span>
+                    </div>
+                  )
                 )}
               </div>
             </div>
@@ -583,130 +656,155 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
       )}
 
       {/* MODAL 2: Share Account Edit / View Permissions */}
-      {sharingAccount && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fadeIn">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900">Share Account Access</h2>
-                <p className="text-xs text-slate-700">Account: <strong>{sharingAccount.name}</strong></p>
-              </div>
-              <button 
-                onClick={() => setSharingAccount(null)}
-                className="text-slate-700 hover:text-slate-900 text-sm font-bold cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
+      {sharingAccount && (() => {
+        const sharingAccess = getAccountAccess(sharingAccount, user.email);
 
-            {/* Invite Form */}
-            <form onSubmit={handleAddSharePermission} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 mb-4 space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <input
-                  type="email"
-                  required
-                  placeholder="Collaborator email"
-                  value={shareEmail}
-                  onChange={(e) => setShareEmail(e.target.value)}
-                  className="px-3 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
-                />
-                <input
-                  type="text"
-                  placeholder="Name / Label (optional)"
-                  value={shareName}
-                  onChange={(e) => setShareName(e.target.value)}
-                  className="px-3 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
-                />
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4 text-xs">
-                  <label className="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="role"
-                      checked={shareRole === 'view'}
-                      onChange={() => setShareRole('view')}
-                      className="text-blue-600"
-                    />
-                    <span className="flex items-center gap-1 text-slate-700">
-                      <Eye className="w-3.5 h-3.5 text-slate-700" /> View Only
-                    </span>
-                  </label>
-
-                  <label className="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="role"
-                      checked={shareRole === 'edit'}
-                      onChange={() => setShareRole('edit')}
-                      className="text-blue-600"
-                    />
-                    <span className="flex items-center gap-1 text-slate-700">
-                      <Edit3 className="w-3.5 h-3.5 text-blue-600" /> Can Edit & Transact
-                    </span>
-                  </label>
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fadeIn">
+            <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">
+                    {sharingAccess.canManagePermissions ? 'Share Account Access' : 'Account Access Details'}
+                  </h2>
+                  <p className="text-xs text-slate-700">Account: <strong>{sharingAccount.name}</strong></p>
                 </div>
-
-                <button
-                  type="submit"
-                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition"
+                <button 
+                  onClick={() => setSharingAccount(null)}
+                  className="text-slate-700 hover:text-slate-900 text-sm font-bold cursor-pointer"
                 >
-                  Grant Access
+                  ✕
                 </button>
               </div>
-            </form>
 
-            {/* Existing Shared Users List */}
-            <div>
-              <h3 className="text-xs font-bold uppercase text-slate-700 mb-2">People with Access</h3>
-              <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto">
-                <div className="py-2 flex items-center justify-between text-xs">
+              {/* Invite Form - Only visible to Owner / Admins */}
+              {sharingAccess.canManagePermissions ? (
+                <form onSubmit={handleAddSharePermission} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 mb-4 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input
+                      type="email"
+                      required
+                      placeholder="Collaborator email"
+                      value={shareEmail}
+                      onChange={(e) => setShareEmail(e.target.value)}
+                      className="px-3 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Name / Label (optional)"
+                      value={shareName}
+                      onChange={(e) => setShareName(e.target.value)}
+                      className="px-3 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4 text-xs">
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="role"
+                          checked={shareRole === 'view'}
+                          onChange={() => setShareRole('view')}
+                          className="text-blue-600"
+                        />
+                        <span className="flex items-center gap-1 text-slate-700">
+                          <Eye className="w-3.5 h-3.5 text-slate-700" /> View Only
+                        </span>
+                      </label>
+
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="role"
+                          checked={shareRole === 'edit'}
+                          onChange={() => setShareRole('edit')}
+                          className="text-blue-600"
+                        />
+                        <span className="flex items-center gap-1 text-slate-700">
+                          <Edit3 className="w-3.5 h-3.5 text-blue-600" /> Can Edit & Transact
+                        </span>
+                      </label>
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition cursor-pointer"
+                    >
+                      Grant Access
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="p-3.5 bg-amber-50 rounded-2xl border border-amber-200/80 mb-4 flex items-start gap-2.5 text-xs text-amber-900">
+                  <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
                   <div>
-                    <span className="font-semibold text-slate-900">{user.name} (You)</span>
-                    <p className="text-[11px] text-slate-700">{user.email}</p>
+                    <strong className="font-semibold block">Read-Only Permission View</strong>
+                    This account is owned by <strong>{sharingAccount.ownerEmail || 'another user'}</strong>. Only the account owner can invite or revoke access.
                   </div>
-                  <span className="px-2 py-0.5 bg-blue-100 text-blue-800 font-bold rounded text-[10px]">
-                    Owner
-                  </span>
                 </div>
+              )}
 
-                {sharingAccount.sharedWith && sharingAccount.sharedWith.map((perm) => (
-                  <div key={perm.email} className="py-2.5 flex items-center justify-between text-xs">
+              {/* Existing Shared Users List */}
+              <div>
+                <h3 className="text-xs font-bold uppercase text-slate-700 mb-2">People with Access</h3>
+                <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto">
+                  <div className="py-2 flex items-center justify-between text-xs">
                     <div>
-                      <span className="font-semibold text-slate-900">{perm.name || perm.email}</span>
-                      <p className="text-[11px] text-slate-700">{perm.email} • Added {perm.addedAt}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        perm.role === 'edit' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'
-                      }`}>
-                        {perm.role === 'edit' ? 'Can Edit' : 'View Only'}
+                      <span className="font-semibold text-slate-900">
+                        {sharingAccount.ownerEmail === user.email ? `${user.name} (You)` : (sharingAccount.ownerEmail || 'Account Owner')}
                       </span>
-                      <button
-                        onClick={() => handleRemovePermission(perm.email)}
-                        className="text-rose-700 hover:text-rose-900 p-1 rounded hover:bg-rose-50 transition"
-                        title="Revoke Permission"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <p className="text-[11px] text-slate-700">{sharingAccount.ownerEmail || user.email}</p>
                     </div>
+                    <span className="px-2 py-0.5 bg-blue-100 text-blue-800 font-bold rounded text-[10px]">
+                      Owner
+                    </span>
                   </div>
-                ))}
+
+                  {sharingAccount.sharedWith && sharingAccount.sharedWith.map((perm) => {
+                    const isSelf = perm.email.toLowerCase() === user.email.toLowerCase();
+                    return (
+                      <div key={perm.email} className="py-2.5 flex items-center justify-between text-xs">
+                        <div>
+                          <span className="font-semibold text-slate-900">
+                            {perm.name || perm.email} {isSelf ? '(You)' : ''}
+                          </span>
+                          <p className="text-[11px] text-slate-700">{perm.email} • Added {perm.addedAt}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            perm.role === 'edit' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'
+                          }`}>
+                            {perm.role === 'edit' ? 'Can Edit' : 'View Only'}
+                          </span>
+                          {sharingAccess.canManagePermissions && (
+                            <button
+                              onClick={() => handleRemovePermission(perm.email)}
+                              className="text-rose-700 hover:text-rose-900 p-1 rounded hover:bg-rose-50 transition cursor-pointer"
+                              title="Revoke Permission"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="mt-6 pt-3 border-t border-slate-200 flex justify-end">
+                <button
+                  onClick={() => setSharingAccount(null)}
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold cursor-pointer"
+                >
+                  Done
+                </button>
               </div>
             </div>
-
-            <div className="mt-6 pt-3 border-t border-slate-200 flex justify-end">
-              <button
-                onClick={() => setSharingAccount(null)}
-                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold"
-              >
-                Done
-              </button>
-            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* MODAL 3: Transfer Funds */}
       {isTransferModalOpen && (
@@ -717,7 +815,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
             <form onSubmit={handleExecuteTransfer} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">From Account</label>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">From Account (Transactable)</label>
                 <select
                   required
                   value={transferFrom}
@@ -725,7 +823,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
                 >
                   <option value="">Select source account</option>
-                  {bankAccounts.map(a => (
+                  {transferableBankAccounts.map(a => (
                     <option key={a.id} value={a.id}>
                       {a.name} ({a.currency}{a.balance.toLocaleString('en-IN')})
                     </option>
@@ -777,13 +875,13 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsTransferModalOpen(false)}
-                  className="px-4 py-2.5 text-slate-600 hover:bg-slate-100 rounded-xl text-sm font-semibold"
+                  className="px-4 py-2.5 text-slate-600 hover:bg-slate-100 rounded-xl text-sm font-semibold cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold shadow-sm"
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold shadow-sm cursor-pointer"
                 >
                   Transfer Now
                 </button>
@@ -812,7 +910,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
                 >
                   <option value="">Select bank account</option>
-                  {bankAccounts.map(a => (
+                  {payableBankAccounts.map(a => (
                     <option key={a.id} value={a.id}>
                       {a.name} (Balance: {a.currency}{a.balance.toLocaleString('en-IN')})
                     </option>
@@ -835,13 +933,13 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setPayingCard(null)}
-                  className="px-4 py-2.5 text-slate-600 hover:bg-slate-100 rounded-xl text-sm font-semibold"
+                  className="px-4 py-2.5 text-slate-600 hover:bg-slate-100 rounded-xl text-sm font-semibold cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-semibold shadow-sm"
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-semibold shadow-sm cursor-pointer"
                 >
                   Confirm Payment
                 </button>

@@ -3,6 +3,7 @@ import { Plus, Receipt, Landmark, Users2, DollarSign, Calendar, X, AlertCircle, 
 import { Account, Category, Group, LoanEMI, Transaction, UserProfile, TransactionRule } from '../types';
 import { CategoryIcon } from './CategoryIcon';
 import { findMatchingRule } from '../lib/ruleEngine';
+import { getAccountAccess, canUserTransactAccount } from '../lib/accountPermissions';
 
 interface AddExpenseModalProps {
   isOpen: boolean;
@@ -36,7 +37,8 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
   const [title, setTitle] = useState('');
   const [amount, setAmount] = useState('');
   const [type, setType] = useState<'expense' | 'income' | 'emi_payment'>('expense');
-  const [accountId, setAccountId] = useState(accounts[0]?.id || 'acc-1');
+  const defaultTransactableAcc = accounts.find(a => canUserTransactAccount(a, user.email)) || accounts[0];
+  const [accountId, setAccountId] = useState(defaultTransactableAcc?.id || 'acc-1');
   const [categoryId, setCategoryId] = useState(categories[0]?.id || 'cat-1');
   const [date, setDate] = useState(initialDate || new Date().toISOString().split('T')[0]);
   const [time, setTime] = useState(() => {
@@ -223,11 +225,14 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
               onChange={(e) => setAccountId(e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              {accounts.map(a => (
-                <option key={a.id} value={a.id}>
-                  {a.name} ({a.type === 'credit_card' ? `Credit Card • Due ${a.currency}${(a.dueAmount || 0).toLocaleString('en-IN')}` : `Balance ${a.currency}${a.balance.toLocaleString('en-IN')}`})
-                </option>
-              ))}
+              {accounts.map(a => {
+                const access = getAccountAccess(a, user.email);
+                return (
+                  <option key={a.id} value={a.id} disabled={!access.canTransact}>
+                    {a.name} ({a.type === 'credit_card' ? `Credit Card • Due ${a.currency}${(a.dueAmount || 0).toLocaleString('en-IN')}` : `Balance ${a.currency}${a.balance.toLocaleString('en-IN')}`}){!access.canTransact ? ' — (View Only)' : ''}
+                  </option>
+                );
+              })}
             </select>
           </div>
 

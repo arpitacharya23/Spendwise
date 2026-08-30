@@ -24,10 +24,13 @@ import {
   Clock,
   Layers,
   Sparkles,
-  DollarSign
+  DollarSign,
+  Eye,
+  Lock
 } from 'lucide-react';
 import { Account, Category, Group, LoanEMI, SplitMemberShare, Transaction, UserProfile } from '../types';
 import { getBankForAccount } from '../data/indianBanks';
+import { getAccountAccess, canUserTransactAccount } from '../lib/accountPermissions';
 
 interface TransactionsViewProps {
   user: UserProfile;
@@ -121,8 +124,14 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
     return '';
   };
 
-  // Open Edit Modal
+  // Open Edit Modal (or Details if View-Only)
   const handleOpenEdit = (tx: Transaction) => {
+    const acc = accounts.find(a => a.id === tx.accountId);
+    if (acc && !canUserTransactAccount(acc, user.email)) {
+      // User has view-only access to this account -> open details modal instead
+      setSelectedTxDetail(tx);
+      return;
+    }
     setEditingTx(tx);
     setEditTitle(tx.title);
     setEditAmount(String(tx.amount));
@@ -142,6 +151,18 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTx || !editTitle || !editAmount) return;
+
+    // Verify account permissions
+    const currentAcc = accounts.find(a => a.id === editingTx.accountId);
+    if (currentAcc && !canUserTransactAccount(currentAcc, user.email)) {
+      setEditingTx(null);
+      return;
+    }
+    const newAcc = accounts.find(a => a.id === editAccountId);
+    if (newAcc && !canUserTransactAccount(newAcc, user.email)) {
+      setEditingTx(null);
+      return;
+    }
 
     onEditTransaction(editingTx.id, {
       title: editTitle,
@@ -936,6 +957,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                     const emi = loans.find(l => l.id === tx.emiId);
                     const isExpense = tx.type === 'expense' || tx.type === 'emi_payment' || (tx.type === 'settlement' && tx.notes?.includes('Paid to'));
                     const formattedTime = formatTxTime(tx);
+                    const canTransact = acc ? canUserTransactAccount(acc, user.email) : true;
 
                     return (
                       <div
@@ -1034,10 +1056,59 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                           </div>
                         </div>
 
-                        {/* Right Column: Amount only */}
-                        <div className="text-right flex-shrink-0 pl-3">
-                          <div className={`font-extrabold text-sm privacy-value ${isExpense ? 'text-rose-600' : 'text-emerald-600'}`}>
-                            {isExpense ? '-' : '+'}{user.currency}{tx.amount.toLocaleString('en-IN')}
+                        {/* Right Column: Amount + Actions */}
+                        <div className="flex items-center gap-2.5 flex-shrink-0 pl-3">
+                          <div className="text-right">
+                            <div className={`font-extrabold text-sm privacy-value ${isExpense ? 'text-rose-600' : 'text-emerald-600'}`}>
+                              {isExpense ? '-' : '+'}{user.currency}{tx.amount.toLocaleString('en-IN')}
+                            </div>
+                            {!canTransact && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded mt-0.5 border border-slate-200">
+                                <Eye className="w-2.5 h-2.5" /> View Only
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div className="flex items-center space-x-1 pl-1.5 border-l border-slate-100">
+                            {canTransact ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpenEdit(tx);
+                                  }}
+                                  className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition cursor-pointer"
+                                  title="Edit Transaction"
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDeletingTxId(tx.id);
+                                  }}
+                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                                  title="Delete Transaction"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedTxDetail(tx);
+                                }}
+                                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                                title="View Details"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1164,11 +1235,14 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                     onChange={(e) => setEditAccountId(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800"
                   >
-                    {accounts.map(acc => (
-                      <option key={acc.id} value={acc.id}>
-                        {acc.name}
-                      </option>
-                    ))}
+                    {accounts.map(acc => {
+                      const access = getAccountAccess(acc, user.email);
+                      return (
+                        <option key={acc.id} value={acc.id} disabled={!access.canTransact}>
+                          {acc.name} {!access.canTransact ? '(View Only)' : ''}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
               </div>
@@ -1327,14 +1401,66 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                 )}
               </div>
 
-              <div className="pt-2">
-                <button
-                  onClick={() => setSelectedTxDetail(null)}
-                  className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition"
-                >
-                  Close
-                </button>
-              </div>
+              {(() => {
+                const detailAcc = accounts.find(a => a.id === selectedTxDetail.accountId);
+                const canTransactDetail = detailAcc ? canUserTransactAccount(detailAcc, user.email) : true;
+
+                if (canTransactDetail) {
+                  return (
+                    <div className="pt-4 border-t border-slate-100 flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const idToDelete = selectedTxDetail.id;
+                          setSelectedTxDetail(null);
+                          setDeletingTxId(idToDelete);
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-bold transition cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span>Delete</span>
+                      </button>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedTxDetail(null)}
+                          className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition cursor-pointer"
+                        >
+                          Close
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const txToEdit = selectedTxDetail;
+                            setSelectedTxDetail(null);
+                            handleOpenEdit(txToEdit);
+                          }}
+                          className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition cursor-pointer"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                          <span>Edit Transaction</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="pt-3 space-y-3 border-t border-slate-100">
+                    <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-600 text-xs flex items-center gap-2">
+                      <Lock className="w-4 h-4 flex-shrink-0 text-slate-400" />
+                      <span>This account is shared in view-only mode. Editing is restricted.</span>
+                    </div>
+                    <button
+                      onClick={() => setSelectedTxDetail(null)}
+                      className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition cursor-pointer"
+                    >
+                      Close
+                    </button>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>

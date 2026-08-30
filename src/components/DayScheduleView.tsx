@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { Account, Category, Group, LoanEMI, Transaction, UserProfile } from '../types';
 import { CategoryIcon } from './CategoryIcon';
+import { canUserTransactAccount } from '../lib/accountPermissions';
 
 interface DayScheduleViewProps {
   selectedDate: string; // YYYY-MM-DD
@@ -638,20 +639,28 @@ export const DayScheduleView: React.FC<DayScheduleViewProps> = ({
 
                                   {/* Quick Action Buttons */}
                                   <div className="flex items-center space-x-1 opacity-80 group-hover/card:opacity-100 transition">
-                                    <button
-                                      onClick={() => onEditTransaction(tx)}
-                                      className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-white rounded-xl transition shadow-2xs"
-                                      title="Edit Event"
-                                    >
-                                      <Edit3 className="w-4 h-4" />
-                                    </button>
-                                    <button
-                                      onClick={() => onDeleteTransaction(tx.id)}
-                                      className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-white rounded-xl transition shadow-2xs"
-                                      title="Delete Event"
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </button>
+                                    {(!tx.account || canUserTransactAccount(tx.account, user.email)) ? (
+                                      <>
+                                        <button
+                                          onClick={() => onEditTransaction(tx)}
+                                          className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-white rounded-xl transition shadow-2xs cursor-pointer"
+                                          title="Edit Event"
+                                        >
+                                          <Edit3 className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                          onClick={() => onDeleteTransaction(tx.id)}
+                                          className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-white rounded-xl transition shadow-2xs cursor-pointer"
+                                          title="Delete Event"
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <span className="text-[10px] font-semibold text-slate-600 bg-white/80 px-2 py-0.5 rounded-lg border border-slate-200">
+                                        View Only
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
                               </div>
@@ -775,20 +784,28 @@ export const DayScheduleView: React.FC<DayScheduleViewProps> = ({
                         {tx.type.toUpperCase()}
                       </span>
                       <div className="flex items-center space-x-1">
-                        <button
-                          onClick={() => onEditTransaction(tx)}
-                          className="p-1.5 text-slate-400 hover:text-amber-600 transition"
-                          title="Edit"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => onDeleteTransaction(tx.id)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 transition"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {(!tx.account || canUserTransactAccount(tx.account, user.email)) ? (
+                          <>
+                            <button
+                              onClick={() => onEditTransaction(tx)}
+                              className="p-1.5 text-slate-400 hover:text-amber-600 transition cursor-pointer"
+                              title="Edit"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => onDeleteTransaction(tx.id)}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 transition cursor-pointer"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        ) : (
+                          <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
+                            View Only
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>

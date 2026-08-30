@@ -192,9 +192,11 @@ export default function App() {
 
     setIsSyncing(true);
     try {
+      const sbAccounts = await getSupabaseAccounts(targetEmail);
+      const accessibleAccountIds = (sbAccounts || []).map(a => a.id);
+
       const [
         sbProfile,
-        sbAccounts,
         sbCategories,
         sbTransactions,
         sbLoans,
@@ -202,9 +204,8 @@ export default function App() {
         sbFriends
       ] = await Promise.all([
         getSupabaseProfile(targetEmail),
-        getSupabaseAccounts(targetEmail),
         getSupabaseCategories(),
-        getSupabaseTransactions(targetEmail),
+        getSupabaseTransactions(targetEmail, accessibleAccountIds),
         getSupabaseLoans(targetEmail),
         getSupabaseGroups(targetEmail),
         getSupabaseFriends(targetEmail)

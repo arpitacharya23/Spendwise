@@ -460,7 +460,7 @@ export async function deleteSupabaseAccount(accountId: string): Promise<boolean>
 // -----------------------------------------------------------------------------
 // TRANSACTIONS
 // -----------------------------------------------------------------------------
-export async function getSupabaseTransactions(userEmail?: string): Promise<Transaction[] | null> {
+export async function getSupabaseTransactions(userEmail?: string, accessibleAccountIds?: string[]): Promise<Transaction[] | null> {
   try {
     const { data, error } = await supabase
       .from('transactions')
@@ -472,10 +472,33 @@ export async function getSupabaseTransactions(userEmail?: string): Promise<Trans
     let filteredData = data;
     if (userEmail) {
       const normalizedEmail = userEmail.trim().toLowerCase();
+      const accessibleSet = new Set<string>(accessibleAccountIds || []);
+
+      // If accessibleAccountIds was not provided, lookup all accounts owned by or shared with this user
+      if (!accessibleAccountIds || accessibleAccountIds.length === 0) {
+        try {
+          const { data: accountsData } = await supabase.from('accounts').select('id, owner_email, shared_with');
+          if (accountsData) {
+            accountsData.forEach((acc: any) => {
+              const isOwner = (acc.owner_email || '').trim().toLowerCase() === normalizedEmail;
+              const isShared = Array.isArray(acc.shared_with) && acc.shared_with.some(
+                (p: any) => (p?.email || '').trim().toLowerCase() === normalizedEmail
+              );
+              if (isOwner || isShared) {
+                accessibleSet.add(acc.id);
+              }
+            });
+          }
+        } catch {
+          // ignore lookup error and fallback
+        }
+      }
+
       filteredData = data.filter((t: any) => {
         const creatorMatch = (t.created_by || '').trim().toLowerCase() === normalizedEmail;
+        const accountMatch = (t.account_id && accessibleSet.has(t.account_id)) || (t.to_account_id && accessibleSet.has(t.to_account_id));
         const splitMatch = Array.isArray(t.split_details) && t.split_details.some((s: any) => (s?.memberEmail || '').trim().toLowerCase() === normalizedEmail);
-        return creatorMatch || splitMatch;
+        return creatorMatch || accountMatch || splitMatch;
       });
     }
 
