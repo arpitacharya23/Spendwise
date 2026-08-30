@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { Category, Transaction, UserProfile } from '../types';
 import { AVAILABLE_CATEGORY_ICONS, CATEGORY_PALETTES, CategoryIcon } from './CategoryIcon';
+import { CategorySparkline, MonthlySpendPoint } from './CategorySparkline';
 
 interface CategoriesViewProps {
   user: UserProfile;
@@ -66,10 +67,6 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   const [editingMasterBudget, setEditingMasterBudget] = useState(false);
   const [masterBudgetValue, setMasterBudgetValue] = useState<string>(String(user.monthlyBudget || 50000));
 
-  // Quick Inline Category Budget Editing State
-  const [inlineBudgetEditCatId, setInlineBudgetEditCatId] = useState<string | null>(null);
-  const [inlineBudgetValue, setInlineBudgetValue] = useState<string>('');
-
   // Modals State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
@@ -83,9 +80,6 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   const [formIcon, setFormIcon] = useState('Tag');
   const [formBudgetLimit, setFormBudgetLimit] = useState<string>('');
   const [iconSearch, setIconSearch] = useState('');
-
-  // Quick Color Picker Popover State
-  const [quickColorCategoryId, setQuickColorCategoryId] = useState<string | null>(null);
 
   // Date navigation & calculation helpers
   const monthName = new Date(selectedYear, selectedMonth, 1).toLocaleString('default', { month: 'long' });
@@ -208,6 +202,25 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
     ? Math.round(remainingMasterBudget / daysRemaining) 
     : 0;
 
+  // 6-Month rolling period ending at the active viewed month/year (or current date in yearly/all-time mode)
+  const last6Months = useMemo(() => {
+    const refDate = (timeframeMode === 'monthly')
+      ? new Date(selectedYear, selectedMonth, 1)
+      : new Date(today.getFullYear(), today.getMonth(), 1);
+
+    const months: MonthlySpendPoint[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(refDate.getFullYear(), refDate.getMonth() - i, 1);
+      months.push({
+        monthKey: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+        shortLabel: d.toLocaleString('default', { month: 'short' }),
+        fullLabel: d.toLocaleString('default', { month: 'long', year: 'numeric' }),
+        amount: 0,
+      });
+    }
+    return months;
+  }, [selectedYear, selectedMonth, timeframeMode]);
+
   // Calculate detailed stats per category (Universal: Debits, Credits, Budget Progress)
   const categoryStatsList = useMemo(() => {
     return categories.map(cat => {
@@ -225,6 +238,34 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
 
       // Net for category (Credits - Debits)
       const netCategory = creditedAmount - debitedAmount;
+
+      // 6-Month Historical Spending Trend for mini sparkline
+      const spendingTrend6M: MonthlySpendPoint[] = last6Months.map(m => {
+        const [mYear, mMon] = m.monthKey.split('-').map(Number);
+        const mDebit = transactions
+          .filter(tx => {
+            if (tx.categoryId !== cat.id) return false;
+            const isDebit = tx.type === 'expense' || tx.type === 'emi_payment' || (tx.type === 'settlement' && tx.notes?.includes('Paid to'));
+            if (!isDebit) return false;
+            if (!tx.date) return false;
+            const parts = tx.date.split('-');
+            if (parts.length >= 2) {
+              const y = parseInt(parts[0], 10);
+              const mon = parseInt(parts[1], 10);
+              return y === mYear && mon === mMon;
+            }
+            const d = new Date(tx.date);
+            return d.getFullYear() === mYear && (d.getMonth() + 1) === mMon;
+          })
+          .reduce((sum, tx) => sum + (tx.amount || 0), 0);
+
+        return {
+          monthKey: m.monthKey,
+          shortLabel: m.shortLabel,
+          fullLabel: m.fullLabel,
+          amount: mDebit,
+        };
+      });
 
       // Expense Spending Budget (Annualized if in yearly mode)
       const baseBudget = cat.budgetLimit || 0;
@@ -251,6 +292,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
         creditCount,
         totalTxCount: catTxs.length,
         netCategory,
+        spendingTrend6M,
         budget,
         hasBudget,
         budgetPercent,
@@ -262,7 +304,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
         shareOfTotalDebited,
       };
     });
-  }, [categories, activeTransactions, totalPeriodDebited, timeframeMode]);
+  }, [categories, activeTransactions, transactions, totalPeriodDebited, timeframeMode, last6Months]);
 
   // Master allocation metrics
   const totalAllocatedBudget = useMemo(() => {
@@ -413,30 +455,6 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
       onUpdateUserBudget(parsed);
       setEditingMasterBudget(false);
     }
-  };
-
-  // Quick inline category budget save
-  const handleSaveInlineBudget = (categoryId: string) => {
-    const parsed = Number(inlineBudgetValue);
-    if (onUpdateCategoryBudget) {
-      if (!isNaN(parsed) && parsed > 0) {
-        onUpdateCategoryBudget(categoryId, parsed);
-      } else if (inlineBudgetValue.trim() === '' || parsed === 0) {
-        onUpdateCategoryBudget(categoryId, undefined);
-      }
-    } else {
-      onEditCategory(categoryId, {
-        budgetLimit: !isNaN(parsed) && parsed > 0 ? parsed : undefined
-      });
-    }
-    setInlineBudgetEditCatId(null);
-    setInlineBudgetValue('');
-  };
-
-  // Quick Change Color directly from avatar popover
-  const handleQuickColorChange = (categoryId: string, newColor: string) => {
-    onEditCategory(categoryId, { color: newColor });
-    setQuickColorCategoryId(null);
   };
 
   // Filtered icon list for modal
@@ -888,11 +906,10 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
         {/* List Header on Desktop */}
         <div className="hidden lg:grid lg:grid-cols-12 gap-4 px-6 py-3.5 bg-slate-50/90 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-600">
-          <div className="col-span-3">Category</div>
-          <div className="col-span-2 text-right">Debited (Outflow)</div>
+          <div className="col-span-4">Category</div>
+          <div className="col-span-3 text-right">Debited & 6M Trend</div>
           <div className="col-span-2 text-right">Credited (Inflow)</div>
           <div className="col-span-3">Expense Budget & Progress</div>
-          <div className="col-span-2 text-right">Actions</div>
         </div>
 
         {/* Category Rows */}
@@ -907,82 +924,41 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 creditedAmount, 
                 creditCount, 
                 totalTxCount, 
-                netCategory, 
+                spendingTrend6M,
                 budget, 
                 hasBudget, 
                 budgetPercent, 
                 budgetRemaining, 
                 isOver, 
                 isNear, 
-                isOnTrack, 
                 shareOfTotalDebited 
               } = item;
 
               const clampedPercent = Math.min(Math.max(budgetPercent, 0), 100);
-              const isInlineEditing = inlineBudgetEditCatId === category.id;
-              const isQuickColorOpen = quickColorCategoryId === category.id;
 
               return (
                 <div 
                   key={category.id} 
-                  className="px-5 sm:px-6 py-4 hover:bg-slate-50/80 transition flex flex-col lg:grid lg:grid-cols-12 gap-3.5 lg:gap-4 items-stretch lg:items-center relative group"
+                  onClick={() => handleOpenEditModal(category)}
+                  className="px-5 sm:px-6 py-4 hover:bg-blue-50/40 transition-colors flex flex-col lg:grid lg:grid-cols-12 gap-3.5 lg:gap-4 items-stretch lg:items-center relative group cursor-pointer"
+                  title="Click to view details, edit budget or category settings"
                 >
                   {/* Col 1: Category Icon & Name */}
-                  <div className="lg:col-span-3 flex items-center gap-3.5 min-w-0">
-                    {/* Icon Avatar with Quick Color Popover */}
-                    <div className="relative flex-shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => setQuickColorCategoryId(isQuickColorOpen ? null : category.id)}
-                        className="w-10 h-10 rounded-2xl flex items-center justify-center text-white shadow-2xs hover:scale-105 transition cursor-pointer relative group/icon"
-                        style={{ backgroundColor: category.color }}
-                        title="Click to quickly change color"
-                      >
-                        <CategoryIcon iconName={category.icon || 'Tag'} className="w-5 h-5" />
-                        <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-white border border-slate-200 flex items-center justify-center opacity-0 group-hover/icon:opacity-100 transition shadow-xs">
-                          <Palette className="w-2.5 h-2.5 text-slate-700" />
-                        </div>
-                      </button>
-
-                      {/* Quick Color Palette Popover */}
-                      {isQuickColorOpen && (
-                        <div className="absolute top-12 left-0 z-50 p-2.5 bg-white rounded-2xl border border-slate-200 shadow-xl w-56 animate-in fade-in zoom-in-95 duration-100">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-[10px] font-bold uppercase text-slate-500">Pick Color</span>
-                            <button 
-                              onClick={() => setQuickColorCategoryId(null)}
-                              className="text-slate-400 hover:text-slate-600 p-0.5"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </div>
-                          <div className="grid grid-cols-6 gap-1.5">
-                            {CATEGORY_PALETTES.map((p) => (
-                              <button
-                                key={p.hex}
-                                type="button"
-                                onClick={() => handleQuickColorChange(category.id, p.hex)}
-                                className={`w-6 h-6 rounded-lg transition-transform hover:scale-110 flex items-center justify-center ${
-                                  category.color.toUpperCase() === p.hex.toUpperCase() ? 'ring-2 ring-blue-500 ring-offset-1 scale-105' : ''
-                                }`}
-                                style={{ backgroundColor: p.hex }}
-                                title={p.name}
-                              >
-                                {category.color.toUpperCase() === p.hex.toUpperCase() && (
-                                  <Check className="w-3 h-3 text-white stroke-[3]" />
-                                )}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                  <div className="lg:col-span-4 flex items-center gap-3.5 min-w-0">
+                    <div 
+                      className="w-10 h-10 rounded-2xl flex items-center justify-center text-white shadow-2xs flex-shrink-0 group-hover:scale-105 transition-transform"
+                      style={{ backgroundColor: category.color }}
+                    >
+                      <CategoryIcon iconName={category.icon || 'Tag'} className="w-5 h-5" />
                     </div>
 
                     {/* Name & Total Count */}
                     <div className="min-w-0 flex-1">
-                      <span className="text-sm font-bold text-slate-900 truncate block">
-                        {category.name}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-slate-900 group-hover:text-blue-700 transition-colors truncate block">
+                          {category.name}
+                        </span>
+                      </div>
                       <p className="text-[11px] text-slate-600 truncate mt-0.5">
                         {totalTxCount > 0 ? (
                           <span>{totalTxCount} total {totalTxCount === 1 ? 'transaction' : 'transactions'}</span>
@@ -996,16 +972,27 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Col 2: Debited (Outflow) Amount & Count */}
-                  <div className="lg:col-span-2 flex lg:flex-col items-center lg:items-end justify-between text-xs">
-                    <span className="lg:hidden text-slate-600 font-medium">Debited:</span>
-                    <div className="text-right">
-                      <span className="text-sm font-extrabold text-slate-900 block privacy-value">
-                        {debitedAmount > 0 ? `${user.currency}${debitedAmount.toLocaleString('en-IN')}` : `${user.currency}0`}
-                      </span>
-                      <span className="text-[10px] text-slate-600 font-semibold block">
-                        {debitCount} {debitCount === 1 ? 'debit txn' : 'debit txns'}
-                      </span>
+                  {/* Col 2: Debited (Outflow) Amount, Count & 6M Sparkline Trend */}
+                  <div className="lg:col-span-3 flex lg:flex-row items-center justify-between lg:justify-end gap-3 text-xs">
+                    <span className="lg:hidden text-slate-600 font-medium">Debited & Trend:</span>
+                    <div className="flex items-center gap-3">
+                      {/* Mini Sparkline Chart for 6-Month Spending Trend */}
+                      <CategorySparkline 
+                        data={spendingTrend6M} 
+                        color={category.color || '#3B82F6'} 
+                        currency={user.currency}
+                        width={64}
+                        height={24}
+                      />
+
+                      <div className="text-right">
+                        <span className="text-sm font-extrabold text-slate-900 block privacy-value">
+                          {debitedAmount > 0 ? `${user.currency}${debitedAmount.toLocaleString('en-IN')}` : `${user.currency}0`}
+                        </span>
+                        <span className="text-[10px] text-slate-600 font-semibold block">
+                          {debitCount} {debitCount === 1 ? 'debit txn' : 'debit txns'}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -1026,44 +1013,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
 
                   {/* Col 4: Expense Budget & Progress Bar */}
                   <div className="lg:col-span-3 space-y-1.5">
-                    {isInlineEditing ? (
-                      /* Inline Budget Editor Form */
-                      <div className="flex items-center gap-2 p-2 bg-blue-50/80 rounded-xl border border-blue-200">
-                        <span className="text-xs font-bold text-blue-900 whitespace-nowrap">Expense Budget:</span>
-                        <div className="relative flex-1">
-                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
-                            {user.currency}
-                          </span>
-                          <input
-                            type="number"
-                            value={inlineBudgetValue}
-                            onChange={(e) => setInlineBudgetValue(e.target.value)}
-                            placeholder="e.g. 5000"
-                            className="w-full pl-6 pr-2 py-1 text-xs font-bold bg-white border border-blue-300 rounded-lg text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                            autoFocus
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleSaveInlineBudget(category.id)}
-                          className="p-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-                          title="Save Budget"
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setInlineBudgetEditCatId(null);
-                            setInlineBudgetValue('');
-                          }}
-                          className="p-1.5 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition"
-                          title="Cancel"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ) : hasBudget ? (
+                    {hasBudget ? (
                       /* Category has an Expense Budget Limit set */
                       <div className="space-y-1">
                         <div className="flex items-center justify-between text-xs">
@@ -1116,59 +1066,14 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                       </div>
                     ) : (
                       /* No Expense Budget Limit Set */
-                      <div className="flex items-center justify-between text-xs py-0.5">
-                        <span className="text-[11px] text-slate-600">No expense budget set</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setInlineBudgetEditCatId(category.id);
-                            setInlineBudgetValue('');
-                          }}
-                          className="text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 cursor-pointer"
-                        >
-                          <Plus className="w-3 h-3" />
-                          <span>Set Budget</span>
-                        </button>
+                      <div className="flex items-center justify-between text-xs py-1">
+                        <span className="text-[11px] text-slate-500 font-medium">No budget limit set</span>
+                        <span className="text-[11px] font-semibold text-blue-600 group-hover:text-blue-700 flex items-center gap-0.5">
+                          <span>Set limit</span>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </span>
                       </div>
                     )}
-                  </div>
-
-                  {/* Col 5: Actions */}
-                  <div className="lg:col-span-2 flex items-center justify-end gap-1.5 pt-2 lg:pt-0 border-t lg:border-t-0 border-slate-100">
-                    {/* Inline Budget Quick Button */}
-                    {!isInlineEditing && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setInlineBudgetEditCatId(category.id);
-                          setInlineBudgetValue(category.budgetLimit ? String(category.budgetLimit) : '');
-                        }}
-                        className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition"
-                        title={hasBudget ? "Change expense budget limit" : "Set expense budget limit"}
-                      >
-                        <Target className="w-4 h-4" />
-                      </button>
-                    )}
-
-                    {/* Edit Category Details */}
-                    <button
-                      type="button"
-                      onClick={() => handleOpenEditModal(category)}
-                      className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition"
-                      title="Edit Category Details"
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </button>
-
-                    {/* Delete Category */}
-                    <button
-                      type="button"
-                      onClick={() => handleOpenDeleteModal(category)}
-                      className="p-1.5 text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition"
-                      title="Delete Category"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
                   </div>
                 </div>
               );
@@ -1187,7 +1092,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
             </p>
             <button
               onClick={handleOpenAddModal}
-              className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-xs hover:bg-blue-700 transition"
+              className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-xs hover:bg-blue-700 transition cursor-pointer"
             >
               Add New Category
             </button>
@@ -1195,24 +1100,25 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
         )}
       </div>
 
-      {/* Add / Edit Category Modal */}
+      {/* Add / Edit Category Details Modal */}
       {(isAddModalOpen || editingCategory) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4 overflow-y-auto animate-fadeIn">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 my-8 space-y-5">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 my-8 space-y-5">
+            {/* Modal Header */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-3">
                 <div 
-                  className="w-9 h-9 rounded-xl flex items-center justify-center text-white shadow-2xs"
+                  className="w-10 h-10 rounded-2xl flex items-center justify-center text-white shadow-2xs transition-colors"
                   style={{ backgroundColor: formColor }}
                 >
                   <CategoryIcon iconName={formIcon} className="w-5 h-5" />
                 </div>
                 <div>
                   <h3 className="text-base font-extrabold text-slate-900">
-                    {editingCategory ? 'Edit Category' : 'Create New Category'}
+                    {editingCategory ? `Category Details: ${editingCategory.name}` : 'Create New Category'}
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Universal category for debits (expenses) and credits (income)
+                    {editingCategory ? 'Edit name, budget limit, appearance, or remove category' : 'Universal category for debits (expenses) and credits (income)'}
                   </p>
                 </div>
               </div>
@@ -1221,11 +1127,69 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                   setIsAddModalOpen(false);
                   setEditingCategory(null);
                 }}
-                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition"
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {/* Performance Overview Banner (when editing an existing category) */}
+            {editingCategory && (() => {
+              const activeStats = categoryStatsList.find(s => s.category.id === editingCategory.id);
+              if (!activeStats) return null;
+              return (
+                <div className="bg-slate-50/90 rounded-2xl p-3.5 border border-slate-200/80 space-y-2.5">
+                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                    <span>
+                      {timeframeMode === 'monthly' ? `${monthName} ${selectedYear}` : (timeframeMode === 'yearly' ? `Year ${selectedYear}` : 'All-Time')} Overview
+                    </span>
+                    <span className="text-slate-500 font-semibold lowercase">
+                      {activeStats.totalTxCount} {activeStats.totalTxCount === 1 ? 'transaction' : 'transactions'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div className="bg-white p-2.5 rounded-xl border border-slate-200/60">
+                      <span className="text-[10px] text-slate-500 block font-semibold">Debited (Spent)</span>
+                      <span className="text-sm font-extrabold text-slate-900 block mt-0.5">
+                        {user.currency}{activeStats.debitedAmount.toLocaleString('en-IN')}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-medium">
+                        {activeStats.debitCount} debit txns
+                      </span>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-xl border border-slate-200/60">
+                      <span className="text-[10px] text-slate-500 block font-semibold">Credited (Income)</span>
+                      <span className="text-sm font-extrabold text-emerald-700 block mt-0.5">
+                        +{user.currency}{activeStats.creditedAmount.toLocaleString('en-IN')}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-medium">
+                        {activeStats.creditCount} credit txns
+                      </span>
+                    </div>
+
+                    <div className="bg-white p-2.5 rounded-xl border border-slate-200/60 flex flex-col justify-between">
+                      <div>
+                        <span className="text-[10px] text-slate-500 block font-semibold">6-Mo Trend</span>
+                        <span className="text-[11px] font-extrabold text-slate-700 block mt-0.5">
+                          {activeStats.netCategory >= 0 ? `+${user.currency}${activeStats.netCategory.toLocaleString('en-IN')}` : `-${user.currency}${Math.abs(activeStats.netCategory).toLocaleString('en-IN')}`}
+                        </span>
+                      </div>
+                      <div className="mt-1">
+                        <CategorySparkline 
+                          data={activeStats.spendingTrend6M} 
+                          color={formColor} 
+                          currency={user.currency}
+                          width={68}
+                          height={20}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             <form onSubmit={editingCategory ? handleSaveEdit : handleSaveAdd} className="space-y-4">
               {/* Category Name */}
@@ -1238,13 +1202,13 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                   required
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
-                  placeholder="e.g. Salary, Utilities, Consulting, Marketing"
+                  placeholder="e.g. Groceries, Rent, Salary, Freelance"
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   autoFocus
                 />
               </div>
 
-              {/* Monthly Spending Budget Limit (Optional) */}
+              {/* Monthly Spending Budget Limit */}
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-xs font-bold uppercase text-slate-600">
@@ -1260,13 +1224,45 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                     type="number"
                     value={formBudgetLimit}
                     onChange={(e) => setFormBudgetLimit(e.target.value)}
-                    placeholder="e.g. 10000 (leave blank if unbudgeted)"
+                    placeholder="e.g. 10000 (leave blank for unbudgeted)"
                     className="w-full pl-8 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Set a spending threshold to track linear progress and get over-budget warnings.
-                </p>
+
+                {/* Quick Budget Limit Presets */}
+                <div className="flex items-center gap-1.5 flex-wrap mt-2">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">Presets:</span>
+                  <button
+                    type="button"
+                    onClick={() => setFormBudgetLimit('')}
+                    className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
+                      !formBudgetLimit ? 'bg-slate-800 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    No Limit
+                  </button>
+                  {[2000, 5000, 10000, 20000, 50000].map(val => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setFormBudgetLimit(String(val))}
+                      className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
+                        formBudgetLimit === String(val) 
+                          ? 'bg-blue-600 text-white shadow-2xs' 
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      {user.currency}{val.toLocaleString('en-IN')}
+                    </button>
+                  ))}
+                </div>
+
+                {formBudgetLimit && Number(formBudgetLimit) > 0 && (
+                  <p className="text-[11px] text-blue-600 font-medium mt-1.5 flex items-center gap-1">
+                    <Target className="w-3 h-3" />
+                    <span>Annual spending limit: {user.currency}{(Number(formBudgetLimit) * 12).toLocaleString('en-IN')}/year</span>
+                  </p>
+                )}
               </div>
 
               {/* Color Palette */}
@@ -1280,7 +1276,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                       key={p.hex}
                       type="button"
                       onClick={() => setFormColor(p.hex)}
-                      className={`w-7 h-7 rounded-lg transition-transform hover:scale-110 flex items-center justify-center ${
+                      className={`w-7 h-7 rounded-lg transition-transform hover:scale-110 flex items-center justify-center cursor-pointer ${
                         formColor.toUpperCase() === p.hex.toUpperCase() ? 'ring-2 ring-blue-500 ring-offset-2 scale-105' : ''
                       }`}
                       style={{ backgroundColor: p.hex }}
@@ -1322,7 +1318,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                       key={i.name}
                       type="button"
                       onClick={() => setFormIcon(i.name)}
-                      className={`p-2 rounded-xl flex items-center justify-center transition ${
+                      className={`p-2 rounded-xl flex items-center justify-center transition cursor-pointer ${
                         formIcon === i.name 
                           ? 'bg-blue-600 text-white shadow-xs' 
                           : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/80'
@@ -1335,25 +1331,45 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 </div>
               </div>
 
-              {/* Action Buttons */}
-              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsAddModalOpen(false);
-                    setEditingCategory(null);
-                  }}
-                  className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition active:scale-95 flex items-center gap-1.5"
-                >
-                  <Check className="w-4 h-4" />
-                  <span>{editingCategory ? 'Save Changes' : 'Create Category'}</span>
-                </button>
+              {/* Action Buttons & Delete Button */}
+              <div className="flex items-center justify-between gap-2.5 pt-4 border-t border-slate-100">
+                {editingCategory ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const catToDelete = editingCategory;
+                      setEditingCategory(null);
+                      handleOpenDeleteModal(catToDelete);
+                    }}
+                    className="px-3.5 py-2.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+                    title="Delete this category"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete</span>
+                  </button>
+                ) : (
+                  <div />
+                )}
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAddModalOpen(false);
+                      setEditingCategory(null);
+                    }}
+                    className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition active:scale-95 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>{editingCategory ? 'Save Changes' : 'Create Category'}</span>
+                  </button>
+                </div>
               </div>
             </form>
           </div>
