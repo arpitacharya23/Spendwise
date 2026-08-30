@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   Receipt, 
   Plus, 
@@ -26,11 +26,15 @@ import {
   Sparkles,
   DollarSign,
   Eye,
-  Lock
+  EyeOff,
+  Lock,
+  User,
+  ShieldCheck,
+  ArrowUp
 } from 'lucide-react';
 import { Account, Category, Group, LoanEMI, SplitMemberShare, Transaction, UserProfile } from '../types';
 import { getBankForAccount } from '../data/indianBanks';
-import { getAccountAccess, canUserTransactAccount } from '../lib/accountPermissions';
+import { getAccountAccess, canUserTransactAccount, isSharedOrJointAccount } from '../lib/accountPermissions';
 
 interface TransactionsViewProps {
   user: UserProfile;
@@ -65,6 +69,12 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   const [selectedGroup, setSelectedGroup] = useState<string>('all');
   const [selectedLoan, setSelectedLoan] = useState<string>('all');
   
+  // Shared & Permission Filter State
+  const [showPersonalAccounts, setShowPersonalAccounts] = useState<boolean>(true);
+  const [showSharedEditAccounts, setShowSharedEditAccounts] = useState<boolean>(true);
+  const [showSharedViewAccounts, setShowSharedViewAccounts] = useState<boolean>(true);
+  const [accountSharingFilter, setAccountSharingFilter] = useState<'all' | 'personal' | 'shared_all' | 'shared_edit' | 'shared_view'>('all');
+
   // Date Filters
   const [datePreset, setDatePreset] = useState<string>('all');
   const [startDate, setStartDate] = useState<string>('');
@@ -83,6 +93,225 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [deletingTxId, setDeletingTxId] = useState<string | null>(null);
 
+  // Helper to categorize account sharing type for a transaction
+  const getTxSharingCategory = (tx: Transaction): 'personal' | 'shared_edit' | 'shared_view' => {
+    const acc = accounts.find(a => a.id === tx.accountId);
+    if (!acc) return 'personal';
+    const isShared = isSharedOrJointAccount(acc, user.email);
+    if (!isShared) return 'personal';
+    const access = getAccountAccess(acc, user.email);
+    if (access.role === 'view') {
+      return 'shared_view';
+    }
+    return 'shared_edit';
+  };
+
+  // Counts of transactions across personal vs shared permissions
+  const sharingCategoryCounts = useMemo(() => {
+    let personal = 0;
+    let sharedEdit = 0;
+    let sharedView = 0;
+
+    transactions.forEach(tx => {
+      const cat = getTxSharingCategory(tx);
+      if (cat === 'personal') personal++;
+      else if (cat === 'shared_edit') sharedEdit++;
+      else if (cat === 'shared_view') sharedView++;
+    });
+
+    return {
+      personal,
+      sharedEdit,
+      sharedView,
+      sharedTotal: sharedEdit + sharedView,
+      total: transactions.length
+    };
+  }, [transactions, accounts, user.email]);
+
+  // Apply sharing presets
+  const handleApplySharingPreset = (preset: 'all' | 'personal' | 'shared_all' | 'shared_edit' | 'shared_view') => {
+    setAccountSharingFilter(preset);
+    if (preset === 'all') {
+      setShowPersonalAccounts(true);
+      setShowSharedEditAccounts(true);
+      setShowSharedViewAccounts(true);
+    } else if (preset === 'personal') {
+      setShowPersonalAccounts(true);
+      setShowSharedEditAccounts(false);
+      setShowSharedViewAccounts(false);
+    } else if (preset === 'shared_all') {
+      setShowPersonalAccounts(false);
+      setShowSharedEditAccounts(true);
+      setShowSharedViewAccounts(true);
+    } else if (preset === 'shared_edit') {
+      setShowPersonalAccounts(false);
+      setShowSharedEditAccounts(true);
+      setShowSharedViewAccounts(false);
+    } else if (preset === 'shared_view') {
+      setShowPersonalAccounts(false);
+      setShowSharedEditAccounts(false);
+      setShowSharedViewAccounts(true);
+    }
+  };
+
+  const handleTogglePersonal = () => {
+    const next = !showPersonalAccounts;
+    setShowPersonalAccounts(next);
+    if (next && showSharedEditAccounts && showSharedViewAccounts) {
+      setAccountSharingFilter('all');
+    } else if (next && !showSharedEditAccounts && !showSharedViewAccounts) {
+      setAccountSharingFilter('personal');
+    } else if (!next && showSharedEditAccounts && showSharedViewAccounts) {
+      setAccountSharingFilter('shared_all');
+    } else if (!next && showSharedEditAccounts && !showSharedViewAccounts) {
+      setAccountSharingFilter('shared_edit');
+    } else if (!next && !showSharedEditAccounts && showSharedViewAccounts) {
+      setAccountSharingFilter('shared_view');
+    }
+  };
+
+  const handleToggleSharedEdit = () => {
+    const next = !showSharedEditAccounts;
+    setShowSharedEditAccounts(next);
+    if (showPersonalAccounts && next && showSharedViewAccounts) {
+      setAccountSharingFilter('all');
+    } else if (showPersonalAccounts && !next && !showSharedViewAccounts) {
+      setAccountSharingFilter('personal');
+    } else if (!showPersonalAccounts && next && showSharedViewAccounts) {
+      setAccountSharingFilter('shared_all');
+    } else if (!showPersonalAccounts && next && !showSharedViewAccounts) {
+      setAccountSharingFilter('shared_edit');
+    } else if (!showPersonalAccounts && !next && showSharedViewAccounts) {
+      setAccountSharingFilter('shared_view');
+    }
+  };
+
+  const handleToggleSharedView = () => {
+    const next = !showSharedViewAccounts;
+    setShowSharedViewAccounts(next);
+    if (showPersonalAccounts && showSharedEditAccounts && next) {
+      setAccountSharingFilter('all');
+    } else if (showPersonalAccounts && !showSharedEditAccounts && !next) {
+      setAccountSharingFilter('personal');
+    } else if (!showPersonalAccounts && showSharedEditAccounts && next) {
+      setAccountSharingFilter('shared_all');
+    } else if (!showPersonalAccounts && showSharedEditAccounts && !next) {
+      setAccountSharingFilter('shared_edit');
+    } else if (!showPersonalAccounts && !showSharedEditAccounts && next) {
+      setAccountSharingFilter('shared_view');
+    }
+  };
+
+  const handleToggleAllShared = () => {
+    const areSharedActive = showSharedEditAccounts || showSharedViewAccounts;
+    if (areSharedActive) {
+      setShowSharedEditAccounts(false);
+      setShowSharedViewAccounts(false);
+      setShowPersonalAccounts(true);
+      setAccountSharingFilter('personal');
+    } else {
+      setShowSharedEditAccounts(true);
+      setShowSharedViewAccounts(true);
+      if (showPersonalAccounts) {
+        setAccountSharingFilter('all');
+      } else {
+        setAccountSharingFilter('shared_all');
+      }
+    }
+  };
+
+  // Account Sharing / Scope Dropdown state & ref
+  const [isSharingScopeOpen, setIsSharingScopeOpen] = useState(false);
+  const sharingScopeDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close sharing dropdown when clicked outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        sharingScopeDropdownRef.current &&
+        !sharingScopeDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsSharingScopeOpen(false);
+      }
+    };
+    if (isSharingScopeOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isSharingScopeOpen]);
+
+  // Derived label for the dropdown button
+  const sharingScopeSummaryLabel = useMemo(() => {
+    const count = (showPersonalAccounts ? 1 : 0) + (showSharedEditAccounts ? 1 : 0) + (showSharedViewAccounts ? 1 : 0);
+    if (count === 3) return 'All Accounts (3)';
+    if (count === 0) return 'None selected (0)';
+    if (showPersonalAccounts && !showSharedEditAccounts && !showSharedViewAccounts) return 'Personal account';
+    if (!showPersonalAccounts && showSharedEditAccounts && !showSharedViewAccounts) return 'Shared accounts Edit only';
+    if (!showPersonalAccounts && !showSharedEditAccounts && showSharedViewAccounts) return 'Shared accounts view only';
+    if (showPersonalAccounts && showSharedEditAccounts && !showSharedViewAccounts) return 'Personal + Shared (Edit)';
+    if (showPersonalAccounts && !showSharedEditAccounts && showSharedViewAccounts) return 'Personal + Shared (View)';
+    if (!showPersonalAccounts && showSharedEditAccounts && showSharedViewAccounts) return 'All Shared accounts (2)';
+    return `${count} selected`;
+  }, [showPersonalAccounts, showSharedEditAccounts, showSharedViewAccounts]);
+
+  // Floating "Go to top" Button State
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const [isScrollTopDimmed, setIsScrollTopDimmed] = useState(false);
+  const scrollTopTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const transactionsViewRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const scrollParent = transactionsViewRef.current?.closest('.overflow-y-auto') || window;
+
+    const handleScroll = () => {
+      const scrollY = scrollParent === window 
+        ? window.scrollY 
+        : (scrollParent as HTMLElement).scrollTop;
+
+      if (scrollY > 200) {
+        setShowScrollTop(true);
+        setIsScrollTopDimmed(false);
+
+        if (scrollTopTimerRef.current) {
+          clearTimeout(scrollTopTimerRef.current);
+        }
+
+        // Dim button to 20% opacity after 2 seconds of inactivity
+        scrollTopTimerRef.current = setTimeout(() => {
+          setIsScrollTopDimmed(true);
+        }, 2000);
+      } else {
+        setShowScrollTop(false);
+        setIsScrollTopDimmed(false);
+        if (scrollTopTimerRef.current) {
+          clearTimeout(scrollTopTimerRef.current);
+        }
+      }
+    };
+
+    scrollParent.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('scroll', handleScroll, { passive: true });
+
+    return () => {
+      scrollParent.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('scroll', handleScroll);
+      if (scrollTopTimerRef.current) {
+        clearTimeout(scrollTopTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleScrollToTop = () => {
+    const scrollParent = transactionsViewRef.current?.closest('.overflow-y-auto') || window;
+    if (scrollParent === window) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      (scrollParent as HTMLElement).scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   // Edit Modal Form State
   const [editTitle, setEditTitle] = useState('');
   const [editAmount, setEditAmount] = useState('');
@@ -95,21 +324,19 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
 
   // Format display time helper (e.g. "14:30" -> "02:30 PM", or extracting from date/updatedAt)
   const formatTxTime = (tx: Transaction) => {
-    if (tx.time) {
+    if (tx.time && tx.time.includes(':')) {
       const parts = tx.time.split(':');
-      if (parts.length >= 2) {
-        const h = parseInt(parts[0], 10);
-        const m = parseInt(parts[1], 10) || 0;
-        if (!isNaN(h)) {
-          const ampm = h >= 12 ? 'PM' : 'AM';
-          const displayH = h % 12 === 0 ? 12 : h % 12;
-          return `${String(displayH).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`;
-        }
+      const h = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10) || 0;
+      if (!isNaN(h)) {
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        const displayH = h % 12 === 0 ? 12 : h % 12;
+        return `${String(displayH).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`;
       }
       return tx.time;
     }
     if (tx.date && tx.date.includes('T')) {
-      const timePart = tx.date.split('T')[1]?.substring(0, 5);
+      const timePart = tx.date.split('T')[1]?.substring(0, 5) || '';
       if (timePart && timePart.includes(':')) {
         const [hStr, mStr] = timePart.split(':');
         const h = parseInt(hStr, 10);
@@ -121,7 +348,17 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
         }
       }
     }
-    return '';
+    if (tx.updatedAt && tx.updatedAt.includes('T')) {
+      try {
+        const dateObj = new Date(tx.updatedAt);
+        if (!isNaN(dateObj.getTime())) {
+          return dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+        }
+      } catch {
+        // fallback
+      }
+    }
+    return '12:00 PM';
   };
 
   // Open Edit Modal (or Details if View-Only)
@@ -238,6 +475,10 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
     setMinAmount('');
     setMaxAmount('');
     setSortBy('date-desc');
+    setShowPersonalAccounts(true);
+    setShowSharedEditAccounts(true);
+    setShowSharedViewAccounts(true);
+    setAccountSharingFilter('all');
   };
 
   // Active filters count
@@ -252,8 +493,25 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
     if (datePreset !== 'all' || startDate || endDate) count++;
     if (minAmount || maxAmount) count++;
     if (sortBy !== 'date-desc') count++;
+    if (!showPersonalAccounts || !showSharedEditAccounts || !showSharedViewAccounts) count++;
     return count;
-  }, [searchTerm, selectedType, selectedCategory, selectedAccount, selectedGroup, selectedLoan, datePreset, startDate, endDate, minAmount, maxAmount, sortBy]);
+  }, [
+    searchTerm, 
+    selectedType, 
+    selectedCategory, 
+    selectedAccount, 
+    selectedGroup, 
+    selectedLoan, 
+    datePreset, 
+    startDate, 
+    endDate, 
+    minAmount, 
+    maxAmount, 
+    sortBy, 
+    showPersonalAccounts, 
+    showSharedEditAccounts, 
+    showSharedViewAccounts
+  ]);
 
   // Main Filtering Logic
   const filteredTransactions = useMemo(() => {
@@ -300,7 +558,13 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
         }
       }
 
-      // 5. Group filter
+      // 5. Account Sharing & Permission Scope Filter (Personal vs Shared Edit vs Shared View-Only)
+      const sharingCat = getTxSharingCategory(tx);
+      if (sharingCat === 'personal' && !showPersonalAccounts) return false;
+      if (sharingCat === 'shared_edit' && !showSharedEditAccounts) return false;
+      if (sharingCat === 'shared_view' && !showSharedViewAccounts) return false;
+
+      // 6. Group filter
       if (selectedGroup !== 'all') {
         if (selectedGroup === 'only_groups') {
           if (!tx.groupId) return false;
@@ -311,7 +575,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
         }
       }
 
-      // 6. Loan / EMI filter
+      // 7. Loan / EMI filter
       if (selectedLoan !== 'all') {
         if (selectedLoan === 'only_emi') {
           if (!tx.emiId && tx.type !== 'emi_payment') return false;
@@ -322,7 +586,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
         }
       }
 
-      // 7. Date range filter
+      // 8. Date range filter
       if (startDate) {
         if (tx.date < startDate) return false;
       }
@@ -330,7 +594,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
         if (tx.date > endDate) return false;
       }
 
-      // 8. Amount range filter
+      // 9. Amount range filter
       if (minAmount && !isNaN(Number(minAmount))) {
         if (tx.amount < Number(minAmount)) return false;
       }
@@ -363,7 +627,27 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
       }
       return 0;
     });
-  }, [transactions, searchTerm, selectedType, selectedCategory, selectedAccount, selectedGroup, selectedLoan, startDate, endDate, minAmount, maxAmount, sortBy, accounts, categories, groups]);
+  }, [
+    transactions, 
+    searchTerm, 
+    selectedType, 
+    selectedCategory, 
+    selectedAccount, 
+    selectedGroup, 
+    selectedLoan, 
+    startDate, 
+    endDate, 
+    minAmount, 
+    maxAmount, 
+    sortBy, 
+    accounts, 
+    categories, 
+    groups, 
+    showPersonalAccounts, 
+    showSharedEditAccounts, 
+    showSharedViewAccounts, 
+    user.email
+  ]);
 
   // Filtered totals
   const totalFilteredOutflow = filteredTransactions
@@ -491,7 +775,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   };
 
   return (
-    <div className="space-y-6 pb-12 animate-fadeIn">
+    <div ref={transactionsViewRef} className="space-y-6 pb-12 animate-fadeIn">
       {/* Top Actions */}
       <div className="flex items-center justify-end gap-2.5 flex-wrap">
         {onOpenCalendar && (
@@ -548,10 +832,11 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
         </div>
       </div>
 
-      {/* Primary Filter Control Bar */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs space-y-4">
-        {/* Row 1: Search, Type, Category, Advanced Toggle, Reset */}
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+      {/* Primary Filter Control Bar - Sticky below main header during scroll */}
+      <div className="sticky top-[61px] sm:top-[65px] z-20 bg-slate-50 pt-3 pb-1 -mt-3">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-4">
+          {/* Row 1: Search, Type, Category, Advanced Toggle, Reset */}
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
           {/* Search Box */}
           <div className="md:col-span-4 relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -655,6 +940,61 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                   </option>
                 ))}
               </select>
+            </div>
+
+            {/* Account Sharing & Permission Scope Filter */}
+            <div className="relative" ref={sharingScopeDropdownRef}>
+              <label className="block text-[11px] font-bold uppercase text-slate-600 mb-1">Account Sharing / Scope</label>
+              <button
+                type="button"
+                onClick={() => setIsSharingScopeOpen(!isSharingScopeOpen)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 flex items-center justify-between text-left cursor-pointer hover:bg-slate-100/70 transition"
+              >
+                <span className="truncate pr-1">{sharingScopeSummaryLabel}</span>
+                {isSharingScopeOpen ? (
+                  <ChevronUp className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                )}
+              </button>
+
+              {/* Dropdown Popover with Checkboxes */}
+              {isSharingScopeOpen && (
+                <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-lg z-50 p-2 space-y-1 animate-fadeIn">
+                  <label className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 text-xs font-medium text-slate-800 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={showPersonalAccounts}
+                      onChange={handleTogglePersonal}
+                      className="w-3.5 h-3.5 rounded text-blue-600 border-slate-300 focus:ring-blue-500 cursor-pointer accent-blue-600"
+                    />
+                    <span className="truncate">Personal account</span>
+                    <span className="text-[10px] text-slate-400 font-semibold ml-auto">({sharingCategoryCounts.personal})</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 text-xs font-medium text-slate-800 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={showSharedEditAccounts}
+                      onChange={handleToggleSharedEdit}
+                      className="w-3.5 h-3.5 rounded text-emerald-600 border-slate-300 focus:ring-emerald-500 cursor-pointer accent-emerald-600"
+                    />
+                    <span className="truncate">Shared accounts Edit only</span>
+                    <span className="text-[10px] text-slate-400 font-semibold ml-auto">({sharingCategoryCounts.sharedEdit})</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 text-xs font-medium text-slate-800 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={showSharedViewAccounts}
+                      onChange={handleToggleSharedView}
+                      className="w-3.5 h-3.5 rounded text-purple-600 border-slate-300 focus:ring-purple-500 cursor-pointer accent-purple-600"
+                    />
+                    <span className="truncate">Shared accounts view only</span>
+                    <span className="text-[10px] text-slate-400 font-semibold ml-auto">({sharingCategoryCounts.sharedView})</span>
+                  </label>
+                </div>
+              )}
             </div>
 
             {/* Splitwise / Group Filter */}
@@ -882,6 +1222,33 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
               </span>
             )}
 
+            {!showPersonalAccounts && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-medium">
+                Personal Accounts: Hidden
+                <button onClick={() => setShowPersonalAccounts(true)} title="Show personal accounts">
+                  <X className="w-3 h-3 hover:text-blue-900" />
+                </button>
+              </span>
+            )}
+
+            {!showSharedEditAccounts && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">
+                Shared (Edit): Hidden
+                <button onClick={() => setShowSharedEditAccounts(true)} title="Show shared edit-access accounts">
+                  <X className="w-3 h-3 hover:text-emerald-900" />
+                </button>
+              </span>
+            )}
+
+            {!showSharedViewAccounts && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-purple-50 text-purple-700 border border-purple-200 font-medium">
+                Shared (View-Only): Hidden
+                <button onClick={() => setShowSharedViewAccounts(true)} title="Show shared view-only accounts">
+                  <X className="w-3 h-3 hover:text-purple-900" />
+                </button>
+              </span>
+            )}
+
             <button
               onClick={handleClearAllFilters}
               className="text-xs font-semibold text-rose-600 hover:underline ml-auto"
@@ -890,6 +1257,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
             </button>
           </div>
         )}
+        </div>
       </div>
 
       {/* Main Transactions List / Table Grouped by Date */}
@@ -957,7 +1325,6 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                     const emi = loans.find(l => l.id === tx.emiId);
                     const isExpense = tx.type === 'expense' || tx.type === 'emi_payment' || (tx.type === 'settlement' && tx.notes?.includes('Paid to'));
                     const formattedTime = formatTxTime(tx);
-                    const canTransact = acc ? canUserTransactAccount(acc, user.email) : true;
 
                     return (
                       <div
@@ -1035,16 +1402,13 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                             </div>
 
                             {/* Subtitle Info (Time + Account + Notes) */}
-                            <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
-                              {formattedTime && (
-                                <>
-                                  <span className="inline-flex items-center gap-1 font-semibold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded-md text-[11px]">
-                                    <Clock className="w-3 h-3 text-slate-400" />
-                                    <span>{formattedTime}</span>
-                                  </span>
-                                  <span className="text-slate-300">•</span>
-                                </>
-                              )}
+                            <div className="text-xs text-slate-500 mt-1 flex items-center gap-1.5 flex-wrap">
+                              {/* Transaction Time Badge on Row */}
+                              <span className="inline-flex items-center gap-1 font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md text-[11px] border border-slate-200/70 shadow-2xs">
+                                <Clock className="w-3 h-3 text-slate-500" />
+                                <span>{formattedTime}</span>
+                              </span>
+                              <span className="text-slate-300">•</span>
                               <span className="font-medium text-slate-700">{acc ? acc.name : 'Primary Account'}</span>
                               {tx.notes && (
                                 <>
@@ -1052,25 +1416,17 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                                   <span className="italic text-slate-500 truncate max-w-xs">{tx.notes}</span>
                                 </>
                               )}
-                            </p>
+                            </div>
                           </div>
                         </div>
 
-                        {/* Right Column: Amount + Actions */}
+                        {/* Right Column: Amount */}
                         <div className="flex items-center gap-2.5 flex-shrink-0 pl-3">
                           <div className="text-right">
                             <div className={`font-extrabold text-sm privacy-value ${isExpense ? 'text-rose-600' : 'text-emerald-600'}`}>
                               {isExpense ? '-' : '+'}{user.currency}{tx.amount.toLocaleString('en-IN')}
                             </div>
-                            {!canTransact && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded mt-0.5 border border-slate-200">
-                                <Eye className="w-2.5 h-2.5" /> View Only
-                              </span>
-                            )}
                           </div>
-
-                          {/* Action Buttons */}
-
                         </div>
                       </div>
                     );
@@ -1458,6 +1814,37 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Floating Go To Top Button (At bottom-right, dims to 20% opacity after 2s) */}
+      <button
+        type="button"
+        onClick={handleScrollToTop}
+        onMouseEnter={() => {
+          setIsScrollTopDimmed(false);
+          if (scrollTopTimerRef.current) {
+            clearTimeout(scrollTopTimerRef.current);
+          }
+        }}
+        onMouseLeave={() => {
+          if (showScrollTop) {
+            scrollTopTimerRef.current = setTimeout(() => {
+              setIsScrollTopDimmed(true);
+            }, 2000);
+          }
+        }}
+        id="btn-scroll-to-top"
+        aria-label="Scroll to top of transactions"
+        title="Scroll to top"
+        className={`fixed bottom-6 right-6 sm:bottom-8 sm:right-8 z-40 p-3 rounded-2xl bg-slate-900 text-white shadow-xl hover:bg-blue-600 hover:scale-110 active:scale-95 border border-slate-700/50 cursor-pointer flex items-center justify-center transition-all duration-500 ease-out ${
+          showScrollTop 
+            ? isScrollTopDimmed 
+              ? 'opacity-10 hover:opacity-100 translate-y-0 pointer-events-auto shadow-xs' 
+              : 'opacity-100 translate-y-0 pointer-events-auto shadow-2xl'
+            : 'opacity-0 translate-y-8 pointer-events-none'
+        }`}
+      >
+        <ArrowUp className="w-5 h-5 stroke-[2.5]" />
+      </button>
     </div>
   );
 };

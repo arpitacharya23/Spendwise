@@ -1321,7 +1321,7 @@ export default function App() {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-y-auto">
         {/* Top Sticky Header with Active View Title, Privacy Toggle & Profile Dropdown */}
-        <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-6 lg:px-8 py-3.5 flex items-center justify-between shadow-xs">
+        <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-6 lg:px-8 py-3.5 flex items-center justify-between shadow-xs">
           {/* Left: Tab Title */}
           <div className="flex items-center space-x-3">
             <h1 className="text-lg sm:text-xl font-extrabold text-slate-900 capitalize tracking-tight flex items-center gap-2">
