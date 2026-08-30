@@ -136,8 +136,8 @@ export interface Category {
   name: string;
   icon: string;
   color: string;
-  type: 'expense' | 'income';
-  budgetLimit?: number;
+  type?: 'expense' | 'income' | 'all';
+  budgetLimit?: number; // Optional monthly expense spending budget limit
 }
 
 export interface UserProfile {

@@ -46,7 +46,6 @@ import { ReportsView } from './components/ReportsView';
 import { TransactionsView } from './components/TransactionsView';
 import { CalendarView } from './components/CalendarView';
 import { CategoriesView } from './components/CategoriesView';
-import { BudgetsView } from './components/BudgetsView';
 import { RulesView } from './components/RulesView';
 import { ManageDashboardModal } from './components/ManageDashboardModal';
 import { AuthView } from './components/AuthView';
@@ -1328,9 +1327,8 @@ export default function App() {
               {activeTab === 'dashboard' && 'Dashboard'}
               {activeTab === 'transactions' && 'Transactions'}
               {activeTab === 'rules' && 'Rules & Automation'}
-              {activeTab === 'budgets' && 'Budgets & Limits'}
+              {(activeTab === 'budgets' || activeTab === 'categories') && 'Budgets & Categories'}
               {activeTab === 'calendar' && 'Cashflow Calendar'}
-              {activeTab === 'categories' && 'Category Manager'}
               {activeTab === 'accounts' && 'Accounts'}
               {activeTab === 'loans' && 'Loans'}
               {activeTab === 'groups' && 'Splitwise'}
@@ -1571,22 +1569,6 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'budgets' && (
-            <BudgetsView
-              user={user}
-              categories={categories}
-              transactions={transactions}
-              onUpdateUserBudget={(budget) => {
-                const updated = { ...user, monthlyBudget: budget };
-                setUser(updated);
-                saveSupabaseProfile(updated);
-              }}
-              onUpdateCategoryBudget={handleUpdateCategoryBudget}
-              onOpenAddExpense={(prefillDate) => handleOpenAddExpense(prefillDate)}
-              onNavigateToCategory={(catId) => setActiveTab('categories')}
-            />
-          )}
-
           {activeTab === 'transactions' && (
             <TransactionsView
               user={user}
@@ -1617,7 +1599,7 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'categories' && (
+          {(activeTab === 'categories' || activeTab === 'budgets') && (
             <CategoriesView
               user={user}
               categories={categories}
@@ -1626,6 +1608,12 @@ export default function App() {
               onEditCategory={handleEditCategory}
               onDeleteCategory={handleDeleteCategory}
               onResetCategories={handleResetCategories}
+              onUpdateUserBudget={(budget) => {
+                const updated = { ...user, monthlyBudget: budget };
+                setUser(updated);
+                saveSupabaseProfile(updated);
+              }}
+              onUpdateCategoryBudget={handleUpdateCategoryBudget}
             />
           )}
 

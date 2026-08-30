@@ -49,9 +49,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'transactions', label: 'Transactions', icon: Receipt },
     { id: 'rules', label: 'Rules', icon: Sparkles },
-    { id: 'budgets', label: 'Budgets', icon: Target },
+    { id: 'categories', label: 'Budgets & Categories', icon: Target },
     { id: 'calendar', label: 'Calendar', icon: Calendar },
-    { id: 'categories', label: 'Categories', icon: Palette },
     { id: 'accounts', label: 'Accounts', icon: Wallet },
     { id: 'loans', label: 'Loans', icon: Landmark },
     { id: 'groups', label: 'Splitwise', icon: Users2 },
@@ -128,7 +127,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <nav className="space-y-1">
                 {navItems.map((item) => {
                   const Icon = item.icon;
-                  const isActive = activeTab === item.id;
+                  const isActive = activeTab === item.id || (item.id === 'categories' && activeTab === 'budgets');
                   return (
                     <button
                       key={item.id}
@@ -224,7 +223,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <nav className="space-y-1 pt-1">
             {navItems.map((item) => {
               const Icon = item.icon;
-              const isActive = activeTab === item.id;
+              const isActive = activeTab === item.id || (item.id === 'categories' && activeTab === 'budgets');
 
               return (
                 <div key={item.id} className="relative group w-full">

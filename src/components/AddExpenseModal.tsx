@@ -275,14 +275,11 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                 onChange={(e) => handleCategorySelect(e.target.value)}
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
               >
-                {categories
-                  .filter(c => type === 'expense' ? c.type === 'expense' : c.type === 'income')
-                  .concat(categories.filter(c => type === 'expense' ? c.type === 'income' : c.type === 'expense'))
-                  .map(c => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} ({c.type})
-                    </option>
-                  ))}
+                {categories.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
               </select>
             </div>
           )}

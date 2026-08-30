@@ -351,7 +351,7 @@ export async function saveSupabaseCategory(category: Category): Promise<boolean>
         name: category.name,
         icon: category.icon,
         color: category.color,
-        type: category.type,
+        type: category.type ?? null,
         budget_limit: category.budgetLimit ?? null,
       });
     return !error;
