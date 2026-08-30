@@ -324,9 +324,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     </div>
   );
 
-  // 2. Account & Card Pills (Rendered seamlessly without container card)
+  // 2. Account & Card Pills (Rendered seamlessly without container card, wrapping to multi-row as needed)
   const renderAccountPillsCard = () => (
-    <div key="account_pills" className="flex items-center gap-3 overflow-x-auto pb-1.5 scrollbar-thin py-1">
+    <div key="account_pills" className="flex flex-wrap items-center gap-3 py-1">
       {accounts.map(acc => {
         const isCard = acc.type === 'credit_card';
         const isCash = acc.type === 'cash';
@@ -337,7 +337,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             key={acc.id}
             onClick={() => onNavigateTab('accounts')}
             style={{ backgroundColor: accountColor }}
-            className="flex-shrink-0 px-4 py-3 rounded-2xl text-white shadow-xs hover:shadow-md transition cursor-pointer flex items-center gap-3 min-w-[130px] sm:min-w-[145px] active:scale-98 relative overflow-hidden group select-none"
+            className="flex-initial px-4 py-3 rounded-2xl text-white shadow-xs hover:shadow-md transition cursor-pointer flex items-center gap-3 min-w-[135px] sm:min-w-[155px] active:scale-98 relative overflow-hidden group select-none"
           >
             {/* Subtle background shine effect on hover */}
             <div className="absolute top-0 right-0 -mt-2 -mr-2 w-12 h-12 rounded-full bg-white/10 pointer-events-none group-hover:scale-125 transition duration-300" />
@@ -369,7 +369,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <button
         onClick={onOpenAddAccount}
         id="btn-dash-add-account"
-        className="flex-shrink-0 px-4 py-3 self-stretch rounded-2xl border-2 border-dashed border-slate-300 hover:border-slate-400 bg-white/40 hover:bg-white text-slate-600 hover:text-slate-900 transition flex items-center justify-center gap-2 cursor-pointer active:scale-98 min-w-[130px] sm:min-w-[145px] shadow-2xs group select-none"
+        className="flex-initial px-4 py-3 self-stretch rounded-2xl border-2 border-dashed border-slate-300 hover:border-slate-400 bg-white/40 hover:bg-white text-slate-600 hover:text-slate-900 transition flex items-center justify-center gap-2 cursor-pointer active:scale-98 min-w-[135px] sm:min-w-[155px] shadow-2xs group select-none"
         title="Add a new bank account or credit card"
       >
         <div className="w-6 h-6 rounded-full bg-slate-100 group-hover:bg-slate-200 flex items-center justify-center flex-shrink-0 transition">
