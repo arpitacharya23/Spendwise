@@ -7,7 +7,8 @@ import {
   ShieldCheck,
   Eye,
   EyeOff,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Database
 } from 'lucide-react';
 import { 
   currentUser, 
@@ -47,6 +48,7 @@ import { TransactionsView } from './components/TransactionsView';
 import { CalendarView } from './components/CalendarView';
 import { CategoriesView } from './components/CategoriesView';
 import { RulesView } from './components/RulesView';
+import { DatabaseModal } from './components/DatabaseModal';
 import { ManageDashboardModal } from './components/ManageDashboardModal';
 import { AuthView } from './components/AuthView';
 import { AddExpenseModal } from './components/AddExpenseModal';
@@ -174,6 +176,7 @@ export default function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isDatabaseModalOpen, setIsDatabaseModalOpen] = useState(false);
   const [logoutNotice, setLogoutNotice] = useState<string | null>(null);
   const profileDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -1538,6 +1541,17 @@ export default function App() {
                     <button
                       onClick={() => {
                         setIsProfileMenuOpen(false);
+                        setIsDatabaseModalOpen(true);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition text-left cursor-pointer"
+                    >
+                      <Database className="w-4 h-4 text-indigo-500" />
+                      <span>Database & Storage</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setIsProfileMenuOpen(false);
                         setIsProfileModalOpen(true);
                       }}
                       className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition text-left cursor-pointer"
@@ -1791,6 +1805,27 @@ export default function App() {
         user={user}
         onSave={handleSaveProfile}
       />
+
+      {/* Database & Storage Modal */}
+      {isDatabaseModalOpen && user && (
+        <DatabaseModal
+          isOpen={isDatabaseModalOpen}
+          onClose={() => setIsDatabaseModalOpen(false)}
+          user={user}
+          accounts={accounts}
+          transactions={transactions}
+          categories={categories}
+          loans={loans}
+          rules={rules}
+          onRestoreFromSheets={(restored) => {
+            if (restored.accounts && restored.accounts.length > 0) setAccounts(restored.accounts);
+            if (restored.transactions && restored.transactions.length > 0) setTransactions(restored.transactions);
+            if (restored.categories && restored.categories.length > 0) setCategories(restored.categories);
+            if (restored.loans && restored.loans.length > 0) setLoans(restored.loans);
+            if (restored.rules && restored.rules.length > 0) setRules(restored.rules);
+          }}
+        />
+      )}
     </div>
   );
 }
