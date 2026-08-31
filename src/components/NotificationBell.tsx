@@ -542,12 +542,6 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
               })
             )}
           </div>
-
-          {/* Footer with summary note */}
-          <div className="px-4 py-2 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-            <span>SpendWise Alert Center</span>
-            <span className="text-[10px] text-slate-400">Real-time alerts active</span>
-          </div>
         </div>
       )}
     </div>
