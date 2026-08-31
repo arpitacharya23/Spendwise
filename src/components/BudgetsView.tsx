@@ -583,6 +583,11 @@ export const BudgetsView: React.FC<BudgetsViewProps> = ({
                         <CategoryIcon iconName={category.icon || 'Tag'} className="w-4 h-4" />
                       </span>
                       <div className="min-w-0">
+                        {category.parentId && (
+                          <span className="text-[10px] font-semibold text-blue-600 block truncate leading-none mb-0.5">
+                            {categories.find(c => c.id === category.parentId)?.name} &gt;
+                          </span>
+                        )}
                         <h3 className="font-bold text-xs text-slate-900 truncate">
                           {category.name}
                         </h3>

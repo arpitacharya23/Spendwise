@@ -565,7 +565,9 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
 
       // 3. Category filter
       if (selectedCategory !== 'all') {
-        if (tx.categoryId !== selectedCategory) return false;
+        const matchingCategoryIds = new Set<string>([selectedCategory]);
+        categories.filter(c => c.parentId === selectedCategory).forEach(sub => matchingCategoryIds.add(sub.id));
+        if (!matchingCategoryIds.has(tx.categoryId)) return false;
       }
 
       // 4. Account filter
@@ -960,11 +962,45 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
               >
                 <option value="all">All Categories</option>
-                {categories.map((cat) => (
-                  <option key={cat.id} value={cat.id}>
-                    {cat.name}
-                  </option>
-                ))}
+                {(() => {
+                  const topLevel = categories.filter(c => !c.parentId);
+                  const orphanSubs = categories.filter(c => c.parentId && !categories.some(p => p.id === c.parentId));
+                  return (
+                    <>
+                      {topLevel.map(parent => {
+                        const subs = categories.filter(c => c.parentId === parent.id);
+                        if (subs.length === 0) {
+                          return (
+                            <option key={parent.id} value={parent.id}>
+                              {parent.name}
+                            </option>
+                          );
+                        }
+                        return (
+                          <optgroup key={parent.id} label={parent.name}>
+                            <option value={parent.id}>
+                              {parent.name} (All / Main)
+                            </option>
+                            {subs.map(sub => (
+                              <option key={sub.id} value={sub.id}>
+                                &nbsp;&nbsp;↳ {sub.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        );
+                      })}
+                      {orphanSubs.length > 0 && (
+                        <optgroup label="Other Categories">
+                          {orphanSubs.map(sub => (
+                            <option key={sub.id} value={sub.id}>
+                              {sub.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                    </>
+                  );
+                })()}
               </select>
             </div>
 
@@ -1689,11 +1725,45 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                   onChange={(e) => setEditCategoryId(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800"
                 >
-                  {categories.map(c => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
+                  {(() => {
+                    const topLevel = categories.filter(c => !c.parentId);
+                    const orphanSubs = categories.filter(c => c.parentId && !categories.some(p => p.id === c.parentId));
+                    return (
+                      <>
+                        {topLevel.map(parent => {
+                          const subs = categories.filter(c => c.parentId === parent.id);
+                          if (subs.length === 0) {
+                            return (
+                              <option key={parent.id} value={parent.id}>
+                                {parent.name}
+                              </option>
+                            );
+                          }
+                          return (
+                            <optgroup key={parent.id} label={parent.name}>
+                              <option value={parent.id}>
+                                {parent.name} (General / Main)
+                              </option>
+                              {subs.map(sub => (
+                                <option key={sub.id} value={sub.id}>
+                                  &nbsp;&nbsp;↳ {sub.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          );
+                        })}
+                        {orphanSubs.length > 0 && (
+                          <optgroup label="Other Categories">
+                            {orphanSubs.map(sub => (
+                              <option key={sub.id} value={sub.id}>
+                                {sub.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </>
+                    );
+                  })()}
                 </select>
               </div>
 

@@ -257,29 +257,69 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="block text-xs font-bold uppercase text-slate-500">Category</label>
-                {categories.find(c => c.id === categoryId) && (
-                  <span 
-                    className="text-[11px] font-bold flex items-center gap-1 px-2 py-0.5 rounded-md"
-                    style={{ 
-                      backgroundColor: `${categories.find(c => c.id === categoryId)?.color}20`,
-                      color: categories.find(c => c.id === categoryId)?.color 
-                    }}
-                  >
-                    <CategoryIcon iconName={categories.find(c => c.id === categoryId)?.icon || 'Tag'} className="w-3 h-3" />
-                    <span>{categories.find(c => c.id === categoryId)?.name}</span>
-                  </span>
-                )}
+                {(() => {
+                  const selectedCat = categories.find(c => c.id === categoryId);
+                  if (!selectedCat) return null;
+                  const parentCat = selectedCat.parentId ? categories.find(c => c.id === selectedCat.parentId) : null;
+                  return (
+                    <span 
+                      className="text-[11px] font-bold flex items-center gap-1.5 px-2 py-0.5 rounded-md"
+                      style={{ 
+                        backgroundColor: `${selectedCat.color}20`,
+                        color: selectedCat.color 
+                      }}
+                    >
+                      <CategoryIcon iconName={selectedCat.icon || 'Tag'} className="w-3 h-3" />
+                      <span>{parentCat ? `${parentCat.name} > ${selectedCat.name}` : selectedCat.name}</span>
+                    </span>
+                  );
+                })()}
               </div>
               <select
                 value={categoryId}
                 onChange={(e) => handleCategorySelect(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium bg-white"
               >
-                {categories.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
+                {(() => {
+                  const topLevel = categories.filter(c => !c.parentId);
+                  const orphanSubs = categories.filter(c => c.parentId && !categories.some(p => p.id === c.parentId));
+                  
+                  return (
+                    <>
+                      {topLevel.map(parent => {
+                        const subs = categories.filter(c => c.parentId === parent.id);
+                        if (subs.length === 0) {
+                          return (
+                            <option key={parent.id} value={parent.id}>
+                              {parent.name}
+                            </option>
+                          );
+                        }
+                        return (
+                          <optgroup key={parent.id} label={parent.name}>
+                            <option value={parent.id}>
+                              {parent.name} (General / Main)
+                            </option>
+                            {subs.map(sub => (
+                              <option key={sub.id} value={sub.id}>
+                                &nbsp;&nbsp;↳ {sub.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        );
+                      })}
+                      {orphanSubs.length > 0 && (
+                        <optgroup label="Other Categories">
+                          {orphanSubs.map(sub => (
+                            <option key={sub.id} value={sub.id}>
+                              {sub.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                    </>
+                  );
+                })()}
               </select>
             </div>
           )}

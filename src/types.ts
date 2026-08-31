@@ -156,6 +156,7 @@ export interface Category {
   color: string;
   type?: 'expense' | 'income' | 'all';
   budgetLimit?: number; // Optional monthly expense spending budget limit
+  parentId?: string; // Optional parent category ID for subcategories
   userEmail?: string; // User email for account-specific category
   isGlobal?: boolean; // True if universal template category
 }

@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { UserProfile } from '../types';
-import { saveSupabaseProfile } from '../lib/supabaseService';
+import { saveSupabaseProfile, importGlobalCategoriesToUser } from '../lib/supabaseService';
 
 interface AuthViewProps {
   onAuthSuccess: (profile: UserProfile) => void;
@@ -215,6 +215,13 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
 
       // 2. Insert into the public.profiles database table
       await saveSupabaseProfile(newProfile, authData.user.id);
+
+      // 3. Automatically copy global categories against this newly created user
+      try {
+        await importGlobalCategoriesToUser(cleanEmail);
+      } catch (catErr) {
+        console.warn('Category initialization note:', catErr);
+      }
 
       // Check if session is already established
       if (authData.session) {

@@ -501,9 +501,45 @@ export const RulesView: React.FC<RulesViewProps> = ({
               className="bg-slate-50 text-xs font-bold text-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 focus:outline-none cursor-pointer"
             >
               <option value="all">All Categories</option>
-              {categories.map(cat => (
-                <option key={cat.id} value={cat.id}>{cat.name}</option>
-              ))}
+              {(() => {
+                const topLevel = categories.filter(c => !c.parentId);
+                const orphanSubs = categories.filter(c => c.parentId && !categories.some(p => p.id === c.parentId));
+                return (
+                  <>
+                    {topLevel.map(parent => {
+                      const subs = categories.filter(c => c.parentId === parent.id);
+                      if (subs.length === 0) {
+                        return (
+                          <option key={parent.id} value={parent.id}>
+                            {parent.name}
+                          </option>
+                        );
+                      }
+                      return (
+                        <optgroup key={parent.id} label={parent.name}>
+                          <option value={parent.id}>
+                            {parent.name} (All / Main)
+                          </option>
+                          {subs.map(sub => (
+                            <option key={sub.id} value={sub.id}>
+                              &nbsp;&nbsp;↳ {sub.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      );
+                    })}
+                    {orphanSubs.length > 0 && (
+                      <optgroup label="Other Categories">
+                        {orphanSubs.map(sub => (
+                          <option key={sub.id} value={sub.id}>
+                            {sub.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </>
+                );
+              })()}
             </select>
 
             {/* Match Type Filter */}
@@ -762,6 +798,7 @@ export const RulesView: React.FC<RulesViewProps> = ({
                 </div>
               </div>
 
+              {/* Category Select in Add Modal */}
               <div>
                 <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
                   Assign Target Category
@@ -772,11 +809,45 @@ export const RulesView: React.FC<RulesViewProps> = ({
                   onChange={(e) => setFormCategoryId(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500"
                 >
-                  {categories.map(cat => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.name} ({cat.type})
-                    </option>
-                  ))}
+                  {(() => {
+                    const topLevel = categories.filter(c => !c.parentId);
+                    const orphanSubs = categories.filter(c => c.parentId && !categories.some(p => p.id === c.parentId));
+                    return (
+                      <>
+                        {topLevel.map(parent => {
+                          const subs = categories.filter(c => c.parentId === parent.id);
+                          if (subs.length === 0) {
+                            return (
+                              <option key={parent.id} value={parent.id}>
+                                {parent.name} ({parent.type})
+                              </option>
+                            );
+                          }
+                          return (
+                            <optgroup key={parent.id} label={parent.name}>
+                              <option value={parent.id}>
+                                {parent.name} (General / Main)
+                              </option>
+                              {subs.map(sub => (
+                                <option key={sub.id} value={sub.id}>
+                                  &nbsp;&nbsp;↳ {sub.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          );
+                        })}
+                        {orphanSubs.length > 0 && (
+                          <optgroup label="Other Categories">
+                            {orphanSubs.map(sub => (
+                              <option key={sub.id} value={sub.id}>
+                                {sub.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </>
+                    );
+                  })()}
                 </select>
               </div>
 
@@ -918,6 +989,7 @@ export const RulesView: React.FC<RulesViewProps> = ({
                 </div>
               </div>
 
+              {/* Category Select in Edit Modal */}
               <div>
                 <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
                   Assign Target Category
@@ -928,11 +1000,45 @@ export const RulesView: React.FC<RulesViewProps> = ({
                   onChange={(e) => setFormCategoryId(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500"
                 >
-                  {categories.map(cat => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.name} ({cat.type})
-                    </option>
-                  ))}
+                  {(() => {
+                    const topLevel = categories.filter(c => !c.parentId);
+                    const orphanSubs = categories.filter(c => c.parentId && !categories.some(p => p.id === c.parentId));
+                    return (
+                      <>
+                        {topLevel.map(parent => {
+                          const subs = categories.filter(c => c.parentId === parent.id);
+                          if (subs.length === 0) {
+                            return (
+                              <option key={parent.id} value={parent.id}>
+                                {parent.name} ({parent.type})
+                              </option>
+                            );
+                          }
+                          return (
+                            <optgroup key={parent.id} label={parent.name}>
+                              <option value={parent.id}>
+                                {parent.name} (General / Main)
+                              </option>
+                              {subs.map(sub => (
+                                <option key={sub.id} value={sub.id}>
+                                  &nbsp;&nbsp;↳ {sub.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          );
+                        })}
+                        {orphanSubs.length > 0 && (
+                          <optgroup label="Other Categories">
+                            {orphanSubs.map(sub => (
+                              <option key={sub.id} value={sub.id}>
+                                {sub.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </>
+                    );
+                  })()}
                 </select>
               </div>
 

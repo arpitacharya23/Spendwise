@@ -324,13 +324,13 @@ export async function saveSupabaseProfile(
 }
 
 // -----------------------------------------------------------------------------
-// CATEGORIES (User/Account-Scoped & Global Templates)
+// CATEGORIES (User-Scoped Isolation & Global Templates)
 // -----------------------------------------------------------------------------
 export async function getSupabaseCategories(userEmail?: string): Promise<Category[] | null> {
   try {
     const normEmail = (userEmail || '').trim().toLowerCase();
 
-    // 1. If userEmail is provided, check for user-specific categories
+    // 1. If userEmail is provided, strictly fetch ONLY categories where user_email matches
     if (normEmail) {
       const { data: userData, error: userError } = await supabase
         .from('categories')
@@ -346,13 +346,22 @@ export async function getSupabaseCategories(userEmail?: string): Promise<Categor
           color: item.color || '#3B82F6',
           type: item.type || 'expense',
           budgetLimit: item.budget_limit ? Number(item.budget_limit) : undefined,
+          parentId: item.parent_id || undefined,
           userEmail: item.user_email || normEmail,
           isGlobal: false,
         }));
       }
+
+      // If user is authenticated but has no personal categories yet,
+      // copy global template categories and save them for this user:
+      console.log(`Copying global template categories for user: ${normEmail}`);
+      const cloned = await importGlobalCategoriesToUser(normEmail);
+      if (cloned && cloned.length > 0) {
+        return cloned;
+      }
     }
 
-    // 2. Otherwise (or as default initial template), fetch universal/global categories
+    // 2. If no userEmail provided (e.g. preview mode without login), fetch universal/global templates
     const { data: globalData, error: globalError } = await supabase
       .from('categories')
       .select('*')
@@ -367,12 +376,13 @@ export async function getSupabaseCategories(userEmail?: string): Promise<Categor
         color: item.color || '#3B82F6',
         type: item.type || 'expense',
         budgetLimit: item.budget_limit ? Number(item.budget_limit) : undefined,
+        parentId: item.parent_id || undefined,
         userEmail: undefined,
         isGlobal: true,
       }));
     }
 
-    return null;
+    return initialCategories;
   } catch (err) {
     console.warn('getSupabaseCategories warning:', err);
     return null;
@@ -382,15 +392,16 @@ export async function getSupabaseCategories(userEmail?: string): Promise<Categor
 export async function saveSupabaseCategory(category: Category, userEmail?: string): Promise<boolean> {
   try {
     const targetEmail = (userEmail || category.userEmail || '').trim().toLowerCase() || null;
-    const isGlobal = category.isGlobal && !targetEmail;
+    const isGlobal = Boolean(category.isGlobal && !targetEmail);
 
     const payload: any = {
       id: category.id,
       name: category.name,
-      icon: category.icon,
-      color: category.color,
+      icon: category.icon || 'Tag',
+      color: category.color || '#3B82F6',
       type: category.type ?? 'expense',
       budget_limit: category.budgetLimit ?? null,
+      parent_id: category.parentId ?? null,
       user_email: targetEmail,
       is_global: isGlobal,
       updated_at: new Date().toISOString(),
@@ -400,7 +411,23 @@ export async function saveSupabaseCategory(category: Category, userEmail?: strin
       .from('categories')
       .upsert(payload);
 
-    return !error;
+    if (error) {
+      console.warn('saveSupabaseCategory upsert error, attempting update/insert fallback:', error);
+      const { error: updateError } = await supabase
+        .from('categories')
+        .update(payload)
+        .eq('id', category.id);
+
+      if (updateError) {
+        const { error: insertError } = await supabase
+          .from('categories')
+          .insert(payload);
+        return !insertError;
+      }
+      return true;
+    }
+
+    return true;
   } catch (err) {
     console.error('saveSupabaseCategory error:', err);
     return false;
@@ -428,19 +455,21 @@ export async function importGlobalCategoriesToUser(userEmail: string, templateCa
   try {
     let sourceCategories = templateCategories;
     if (!sourceCategories || sourceCategories.length === 0) {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('categories')
         .select('*')
-        .or(`is_global.eq.true,user_email.is.null`);
+        .or(`is_global.eq.true,user_email.is.null`)
+        .order('id', { ascending: true });
 
-      if (data && data.length > 0) {
+      if (!error && data && data.length > 0) {
         sourceCategories = data.map((item: any) => ({
           id: item.id,
           name: item.name,
-          icon: item.icon,
-          color: item.color,
-          type: item.type,
+          icon: item.icon || 'Tag',
+          color: item.color || '#3B82F6',
+          type: item.type || 'expense',
           budgetLimit: item.budget_limit ? Number(item.budget_limit) : undefined,
+          parentId: item.parent_id || undefined,
         }));
       }
     }
@@ -449,17 +478,69 @@ export async function importGlobalCategoriesToUser(userEmail: string, templateCa
       sourceCategories = initialCategories;
     }
 
-    const importedCategories: Category[] = sourceCategories.map((c, index) => ({
-      ...c,
-      id: `cat-${normEmail.replace(/[^a-z0-9]/g, '_')}-${index + 1}`,
-      userEmail: normEmail,
-      isGlobal: false,
-    }));
+    // Map old IDs to new scoped user IDs preserving parentId relationships
+    const safePrefix = normEmail.replace(/[^a-z0-9]/g, '_').slice(0, 16);
+    const idMap = new Map<string, string>();
+    sourceCategories.forEach((c) => {
+      const cleanSuffix = c.id.replace(/^cat-?/, '');
+      const newId = `cat_${safePrefix}_${cleanSuffix}`;
+      idMap.set(c.id, newId);
+    });
 
-    for (const cat of importedCategories) {
-      await saveSupabaseCategory(cat, normEmail);
+    const importedCategories: Category[] = sourceCategories.map((c) => {
+      const newId = idMap.get(c.id) || `cat_${safePrefix}_${c.id}`;
+      const newParentId = c.parentId ? (idMap.get(c.parentId) || null) : null;
+      return {
+        ...c,
+        id: newId,
+        parentId: newParentId || undefined,
+        userEmail: normEmail,
+        isGlobal: false,
+      };
+    });
+
+    // To respect foreign key constraints on parent_id, insert parents first, then children
+    const parents = importedCategories.filter(c => !c.parentId);
+    const children = importedCategories.filter(c => Boolean(c.parentId));
+
+    const toDbPayload = (cat: Category) => ({
+      id: cat.id,
+      name: cat.name,
+      icon: cat.icon || 'Tag',
+      color: cat.color || '#3B82F6',
+      type: cat.type ?? 'expense',
+      budget_limit: cat.budgetLimit ?? null,
+      parent_id: cat.parentId ?? null,
+      user_email: normEmail,
+      is_global: false,
+      updated_at: new Date().toISOString(),
+    });
+
+    // 1. Insert/Upsert Parents
+    if (parents.length > 0) {
+      const parentPayloads = parents.map(toDbPayload);
+      const { error: pErr } = await supabase.from('categories').upsert(parentPayloads);
+      if (pErr) {
+        console.warn('Error saving parent categories:', pErr);
+        for (const p of parents) {
+          await saveSupabaseCategory(p, normEmail);
+        }
+      }
     }
 
+    // 2. Insert/Upsert Children
+    if (children.length > 0) {
+      const childPayloads = children.map(toDbPayload);
+      const { error: cErr } = await supabase.from('categories').upsert(childPayloads);
+      if (cErr) {
+        console.warn('Error saving child categories:', cErr);
+        for (const c of children) {
+          await saveSupabaseCategory(c, normEmail);
+        }
+      }
+    }
+
+    console.log(`✅ Successfully copied ${importedCategories.length} categories for user ${normEmail}`);
     return importedCategories;
   } catch (err) {
     console.error('importGlobalCategoriesToUser error:', err);
@@ -498,6 +579,12 @@ export async function getSupabaseRules(userEmail?: string): Promise<TransactionR
           isGlobal: false,
         }));
       }
+
+      // If user is authenticated but has no rules, clone global rules
+      const cloned = await importGlobalRulesToUser(normEmail);
+      if (cloned && cloned.length > 0) {
+        return cloned;
+      }
     }
 
     // 2. Fetch global template rules
@@ -534,7 +621,7 @@ export async function getSupabaseRules(userEmail?: string): Promise<TransactionR
 export async function saveSupabaseRule(rule: TransactionRule, userEmail?: string): Promise<boolean> {
   try {
     const targetEmail = (userEmail || rule.userEmail || '').trim().toLowerCase() || null;
-    const isGlobal = rule.isGlobal && !targetEmail;
+    const isGlobal = Boolean(rule.isGlobal && !targetEmail);
 
     const keywordsArray = (rule.keyword || '')
       .split(',')
@@ -615,12 +702,22 @@ export async function importGlobalRulesToUser(userEmail: string, templateRules?:
       sourceRules = initialRules;
     }
 
-    const importedRules: TransactionRule[] = sourceRules.map((r, index) => ({
-      ...r,
-      id: `rule-${normEmail.replace(/[^a-z0-9]/g, '_')}-${index + 1}`,
-      userEmail: normEmail,
-      isGlobal: false,
-    }));
+    const safePrefix = normEmail.replace(/[^a-z0-9]/g, '_').slice(0, 16);
+
+    const importedRules: TransactionRule[] = sourceRules.map((r, index) => {
+      // Map global category ID to user category ID if applicable
+      const userCategoryId = r.categoryId.startsWith('cat-') 
+        ? `cat_${safePrefix}_${r.categoryId.replace(/^cat-?/, '')}`
+        : r.categoryId;
+
+      return {
+        ...r,
+        id: `rule_${safePrefix}_${index + 1}`,
+        categoryId: userCategoryId,
+        userEmail: normEmail,
+        isGlobal: false,
+      };
+    });
 
     for (const rule of importedRules) {
       await saveSupabaseRule(rule, normEmail);

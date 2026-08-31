@@ -22,7 +22,16 @@ import {
   Edit2,
   ArrowUpDown,
   Zap,
-  Scale
+  Scale,
+  CornerDownRight,
+  ChevronDown,
+  ChevronUp,
+  FolderTree,
+  Layers,
+  FolderPlus,
+  ListPlus,
+  Tag,
+  Info
 } from 'lucide-react';
 import { Category, Transaction, UserProfile } from '../types';
 import { AVAILABLE_CATEGORY_ICONS, CATEGORY_PALETTES, CategoryIcon } from './CategoryIcon';
@@ -38,6 +47,27 @@ interface CategoriesViewProps {
   onResetCategories?: () => void;
   onUpdateUserBudget?: (newBudget: number) => void;
   onUpdateCategoryBudget?: (categoryId: string, budgetLimit?: number) => void;
+}
+
+interface ComputedCategoryStats {
+  category: Category;
+  baseBudget: number;
+  debitedAmount: number;
+  debitCount: number;
+  creditedAmount: number;
+  creditCount: number;
+  totalTxCount: number;
+  netCategory: number;
+  spendingTrend6M: MonthlySpendPoint[];
+  budget: number;
+  hasBudget: boolean;
+  budgetPercent: number;
+  budgetRemaining: number;
+  isOver: boolean;
+  isNear: boolean;
+  isOnTrack: boolean;
+  isUnbudgeted: boolean;
+  shareOfTotalDebited: number;
 }
 
 export const CategoriesView: React.FC<CategoriesViewProps> = ({
@@ -63,6 +93,12 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'debited_desc' | 'credited_desc' | 'budget_desc' | 'over_percent_desc' | 'tx_desc' | 'name_asc'>('debited_desc');
 
+  // Expanded Parent Categories (all expanded by default for instant visibility of subcategories)
+  const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<string>>(() => {
+    const mainIds = categories.filter(c => !c.parentId).map(c => c.id);
+    return new Set(mainIds);
+  });
+
   // Master Monthly Spending Budget Editing State
   const [editingMasterBudget, setEditingMasterBudget] = useState(false);
   const [masterBudgetValue, setMasterBudgetValue] = useState<string>(String(user.monthlyBudget || 50000));
@@ -74,8 +110,9 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   const [reassignTargetId, setReassignTargetId] = useState<string>('');
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
 
-  // Form States for Add / Edit Modal (Universal - no income/expense constraint)
+  // Form States for Add / Edit Modal
   const [formName, setFormName] = useState('');
+  const [formParentId, setFormParentId] = useState<string>('');
   const [formColor, setFormColor] = useState(CATEGORY_PALETTES[0].hex);
   const [formIcon, setFormIcon] = useState('Tag');
   const [formBudgetLimit, setFormBudgetLimit] = useState<string>('');
@@ -136,6 +173,29 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
     setTimeframeMode('yearly');
   };
 
+  // Expand / Collapse toggles
+  const toggleExpand = (catId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setExpandedCategoryIds(prev => {
+      const next = new Set(prev);
+      if (next.has(catId)) {
+        next.delete(catId);
+      } else {
+        next.add(catId);
+      }
+      return next;
+    });
+  };
+
+  const expandAll = () => {
+    const mainIds = categories.filter(c => !c.parentId).map(c => c.id);
+    setExpandedCategoryIds(new Set(mainIds));
+  };
+
+  const collapseAll = () => {
+    setExpandedCategoryIds(new Set());
+  };
+
   // Filter transactions for the selected timeframe
   const activeTransactions = useMemo(() => {
     if (timeframeMode === 'all_time') {
@@ -182,199 +242,287 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   }, [activeTransactions]);
 
   const totalPeriodDebitCount = useMemo(() => {
-    return activeTransactions.filter(tx => tx.type === 'expense' || tx.type === 'emi_payment' || (tx.type === 'settlement' && tx.notes?.includes('Paid to'))).length;
+    return activeTransactions
+      .filter(tx => tx.type === 'expense' || tx.type === 'emi_payment' || (tx.type === 'settlement' && tx.notes?.includes('Paid to')))
+      .length;
   }, [activeTransactions]);
 
   const totalPeriodCreditCount = useMemo(() => {
-    return activeTransactions.filter(tx => tx.type === 'income' || (tx.type === 'settlement' && tx.notes?.includes('Received from'))).length;
+    return activeTransactions
+      .filter(tx => tx.type === 'income' || (tx.type === 'settlement' && tx.notes?.includes('Received from')))
+      .length;
   }, [activeTransactions]);
 
-  const netPeriodBalance = totalPeriodCredited - totalPeriodDebited;
-
-  // Master Spending Budget Calculation (Annualized in yearly mode)
+  // Master Monthly Spending Budget
   const baseMonthlyBudget = user.monthlyBudget || 50000;
   const masterBudgetLimit = timeframeMode === 'yearly' ? baseMonthlyBudget * 12 : baseMonthlyBudget;
   const masterPercentage = masterBudgetLimit > 0 ? (totalPeriodDebited / masterBudgetLimit) * 100 : 0;
   const clampedMasterPercent = Math.min(Math.max(masterPercentage, 0), 100);
   const remainingMasterBudget = masterBudgetLimit - totalPeriodDebited;
-  const isMasterOverBudget = remainingMasterBudget < 0;
-  const dailyRunway = daysRemaining > 0 && remainingMasterBudget > 0 
-    ? Math.round(remainingMasterBudget / daysRemaining) 
-    : 0;
+  const isMasterOverBudget = masterPercentage > 100;
 
-  // 6-Month rolling period ending at the active viewed month/year (or current date in yearly/all-time mode)
+  // Daily spending runway
+  const dailyRunway = useMemo(() => {
+    if (daysRemaining <= 0) return 0;
+    const remaining = Math.max(0, remainingMasterBudget);
+    return Math.round(remaining / daysRemaining);
+  }, [remainingMasterBudget, daysRemaining]);
+
+  // Compute 6-Month Range for Sparkline Data Points
   const last6Months = useMemo(() => {
-    const refDate = (timeframeMode === 'monthly')
-      ? new Date(selectedYear, selectedMonth, 1)
-      : new Date(today.getFullYear(), today.getMonth(), 1);
-
-    const months: MonthlySpendPoint[] = [];
+    const months: { monthKey: string; shortLabel: string; fullLabel: string }[] = [];
+    const baseDate = new Date(selectedYear, selectedMonth, 1);
     for (let i = 5; i >= 0; i--) {
-      const d = new Date(refDate.getFullYear(), refDate.getMonth() - i, 1);
-      months.push({
-        monthKey: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-        shortLabel: d.toLocaleString('default', { month: 'short' }),
-        fullLabel: d.toLocaleString('default', { month: 'long', year: 'numeric' }),
-        amount: 0,
-      });
+      const d = new Date(baseDate.getFullYear(), baseDate.getMonth() - i, 1);
+      const y = d.getFullYear();
+      const m = d.getMonth() + 1;
+      const monthKey = `${y}-${String(m).padStart(2, '0')}`;
+      const shortLabel = d.toLocaleString('default', { month: 'short' });
+      const fullLabel = d.toLocaleString('default', { month: 'short', year: '2-digit' });
+      months.push({ monthKey, shortLabel, fullLabel });
     }
     return months;
-  }, [selectedYear, selectedMonth, timeframeMode]);
+  }, [selectedYear, selectedMonth]);
 
-  // Calculate detailed stats per category (Universal: Debits, Credits, Budget Progress)
-  const categoryStatsList = useMemo(() => {
-    return categories.map(cat => {
-      const catTxs = activeTransactions.filter(tx => tx.categoryId === cat.id);
+  // Helper to compute stats for any single category ID
+  const computeStatsForCategory = (cat: Category): ComputedCategoryStats => {
+    const catTxs = activeTransactions.filter(tx => tx.categoryId === cat.id);
 
-      // Debits (Expenses/Outflows) in this category
-      const debitTxs = catTxs.filter(tx => tx.type === 'expense' || tx.type === 'emi_payment' || (tx.type === 'settlement' && tx.notes?.includes('Paid to')));
-      const debitedAmount = debitTxs.reduce((sum, tx) => sum + (tx.amount || 0), 0);
-      const debitCount = debitTxs.length;
+    const debitTxs = catTxs.filter(tx => tx.type === 'expense' || tx.type === 'emi_payment' || (tx.type === 'settlement' && tx.notes?.includes('Paid to')));
+    const debitedAmount = debitTxs.reduce((sum, tx) => sum + (tx.amount || 0), 0);
+    const debitCount = debitTxs.length;
 
-      // Credits (Income/Inflows) in this category
-      const creditTxs = catTxs.filter(tx => tx.type === 'income' || (tx.type === 'settlement' && tx.notes?.includes('Received from')));
-      const creditedAmount = creditTxs.reduce((sum, tx) => sum + (tx.amount || 0), 0);
-      const creditCount = creditTxs.length;
+    const creditTxs = catTxs.filter(tx => tx.type === 'income' || (tx.type === 'settlement' && tx.notes?.includes('Received from')));
+    const creditedAmount = creditTxs.reduce((sum, tx) => sum + (tx.amount || 0), 0);
+    const creditCount = creditTxs.length;
 
-      // Net for category (Credits - Debits)
-      const netCategory = creditedAmount - debitedAmount;
+    const netCategory = creditedAmount - debitedAmount;
 
-      // 6-Month Historical Spending Trend for mini sparkline
-      const spendingTrend6M: MonthlySpendPoint[] = last6Months.map(m => {
-        const [mYear, mMon] = (m.monthKey || '').split('-').map(Number);
-        const mDebit = transactions
-          .filter(tx => {
-            if (tx.categoryId !== cat.id) return false;
-            const isDebit = tx.type === 'expense' || tx.type === 'emi_payment' || (tx.type === 'settlement' && tx.notes?.includes('Paid to'));
-            if (!isDebit) return false;
-            if (!tx.date || typeof tx.date !== 'string') return false;
-            const parts = tx.date.split('-');
-            if (parts.length >= 2) {
-              const y = parseInt(parts[0], 10);
-              const mon = parseInt(parts[1], 10);
-              return y === mYear && mon === mMon;
-            }
-            const d = new Date(tx.date);
-            return d.getFullYear() === mYear && (d.getMonth() + 1) === mMon;
-          })
-          .reduce((sum, tx) => sum + (tx.amount || 0), 0);
+    // 6-Month Historical Spending Trend
+    const spendingTrend6M: MonthlySpendPoint[] = last6Months.map(m => {
+      const [mYear, mMon] = (m.monthKey || '').split('-').map(Number);
+      const mDebit = transactions
+        .filter(tx => {
+          if (tx.categoryId !== cat.id) return false;
+          const isDebit = tx.type === 'expense' || tx.type === 'emi_payment' || (tx.type === 'settlement' && tx.notes?.includes('Paid to'));
+          if (!isDebit) return false;
+          if (!tx.date || typeof tx.date !== 'string') return false;
+          const parts = tx.date.split('-');
+          if (parts.length >= 2) {
+            const y = parseInt(parts[0], 10);
+            const mon = parseInt(parts[1], 10);
+            return y === mYear && mon === mMon;
+          }
+          const d = new Date(tx.date);
+          return d.getFullYear() === mYear && (d.getMonth() + 1) === mMon;
+        })
+        .reduce((sum, tx) => sum + (tx.amount || 0), 0);
 
+      return {
+        monthKey: m.monthKey,
+        shortLabel: m.shortLabel,
+        fullLabel: m.fullLabel,
+        amount: mDebit,
+      };
+    });
+
+    const baseBudget = cat.budgetLimit || 0;
+    const budget = timeframeMode === 'yearly' ? baseBudget * 12 : baseBudget;
+    const hasBudget = baseBudget > 0;
+    const budgetPercent = hasBudget && budget > 0 ? (debitedAmount / budget) * 100 : 0;
+    const budgetRemaining = hasBudget ? budget - debitedAmount : 0;
+    const isOver = hasBudget && debitedAmount > budget;
+    const isNear = hasBudget && budgetPercent >= 75 && budgetPercent <= 100;
+    const isOnTrack = hasBudget && budgetPercent < 75;
+    const isUnbudgeted = !hasBudget;
+
+    const shareOfTotalDebited = totalPeriodDebited > 0
+      ? (debitedAmount / totalPeriodDebited) * 100
+      : 0;
+
+    return {
+      category: cat,
+      baseBudget,
+      debitedAmount,
+      debitCount,
+      creditedAmount,
+      creditCount,
+      totalTxCount: catTxs.length,
+      netCategory,
+      spendingTrend6M,
+      budget,
+      hasBudget,
+      budgetPercent,
+      budgetRemaining,
+      isOver,
+      isNear,
+      isOnTrack,
+      isUnbudgeted,
+      shareOfTotalDebited,
+    };
+  };
+
+  // Map of all computed stats by category ID
+  const allCategoryStatsMap = useMemo(() => {
+    const map = new Map<string, ComputedCategoryStats>();
+    categories.forEach(cat => {
+      map.set(cat.id, computeStatsForCategory(cat));
+    });
+    return map;
+  }, [categories, activeTransactions, transactions, totalPeriodDebited, timeframeMode, last6Months]);
+
+  // Top level categories and their subcategories hierarchy structure
+  const hierarchicalCategories = useMemo(() => {
+    const topLevel = categories.filter(c => !c.parentId);
+    const orphanSubs = categories.filter(c => c.parentId && !categories.some(p => p.id === c.parentId));
+
+    return [...topLevel, ...orphanSubs].map(parent => {
+      const parentStats = allCategoryStatsMap.get(parent.id) || computeStatsForCategory(parent);
+      const subcategories = categories.filter(c => c.parentId === parent.id);
+      const subStatsList = subcategories.map(sub => allCategoryStatsMap.get(sub.id) || computeStatsForCategory(sub));
+
+      // Roll up total debits, credits, and transaction counts across parent + subcategories
+      const totalCombinedDebited = parentStats.debitedAmount + subStatsList.reduce((sum, s) => sum + s.debitedAmount, 0);
+      const totalCombinedCredited = parentStats.creditedAmount + subStatsList.reduce((sum, s) => sum + s.creditedAmount, 0);
+      const totalCombinedDebitCount = parentStats.debitCount + subStatsList.reduce((sum, s) => sum + s.debitCount, 0);
+      const totalCombinedCreditCount = parentStats.creditCount + subStatsList.reduce((sum, s) => sum + s.creditCount, 0);
+      const totalCombinedTxCount = parentStats.totalTxCount + subStatsList.reduce((sum, s) => sum + s.totalTxCount, 0);
+
+      // Combined 6M sparkline
+      const combinedSpendingTrend6M: MonthlySpendPoint[] = last6Months.map((m, idx) => {
+        const parentAmount = parentStats.spendingTrend6M[idx]?.amount || 0;
+        const subAmounts = subStatsList.reduce((sum, s) => sum + (s.spendingTrend6M[idx]?.amount || 0), 0);
         return {
           monthKey: m.monthKey,
           shortLabel: m.shortLabel,
           fullLabel: m.fullLabel,
-          amount: mDebit,
+          amount: parentAmount + subAmounts,
         };
       });
 
-      // Expense Spending Budget (Annualized if in yearly mode)
-      const baseBudget = cat.budgetLimit || 0;
-      const budget = timeframeMode === 'yearly' ? baseBudget * 12 : baseBudget;
-      const hasBudget = baseBudget > 0;
-      const budgetPercent = hasBudget && budget > 0 ? (debitedAmount / budget) * 100 : 0;
-      const budgetRemaining = hasBudget ? budget - debitedAmount : 0;
-      const isOver = hasBudget && debitedAmount > budget;
-      const isNear = hasBudget && budgetPercent >= 75 && budgetPercent <= 100;
-      const isOnTrack = hasBudget && budgetPercent < 75;
-      const isUnbudgeted = !hasBudget;
+      // Budget calculation
+      const combinedBudget = parentStats.budget + subStatsList.reduce((sum, s) => sum + s.budget, 0);
+      const hasCombinedBudget = parentStats.hasBudget || subStatsList.some(s => s.hasBudget);
+      const combinedBudgetPercent = hasCombinedBudget && combinedBudget > 0 ? (totalCombinedDebited / combinedBudget) * 100 : 0;
+      const combinedBudgetRemaining = hasCombinedBudget ? combinedBudget - totalCombinedDebited : 0;
+      const isCombinedOver = hasCombinedBudget && totalCombinedDebited > combinedBudget;
+      const isCombinedNear = hasCombinedBudget && combinedBudgetPercent >= 75 && combinedBudgetPercent <= 100;
+      const isCombinedOnTrack = hasCombinedBudget && combinedBudgetPercent < 75;
+      const isCombinedUnbudgeted = !hasCombinedBudget;
 
-      // Share of total debited spending
-      const shareOfTotalDebited = totalPeriodDebited > 0
-        ? (debitedAmount / totalPeriodDebited) * 100
+      const combinedShareOfTotal = totalPeriodDebited > 0
+        ? (totalCombinedDebited / totalPeriodDebited) * 100
         : 0;
 
       return {
-        category: cat,
-        baseBudget,
-        debitedAmount,
-        debitCount,
-        creditedAmount,
-        creditCount,
-        totalTxCount: catTxs.length,
-        netCategory,
-        spendingTrend6M,
-        budget,
-        hasBudget,
-        budgetPercent,
-        budgetRemaining,
-        isOver,
-        isNear,
-        isOnTrack,
-        isUnbudgeted,
-        shareOfTotalDebited,
+        parent,
+        parentStats,
+        subcategories,
+        subStatsList,
+        totalCombinedDebited,
+        totalCombinedCredited,
+        totalCombinedDebitCount,
+        totalCombinedCreditCount,
+        totalCombinedTxCount,
+        combinedSpendingTrend6M,
+        combinedBudget,
+        hasCombinedBudget,
+        combinedBudgetPercent,
+        combinedBudgetRemaining,
+        isCombinedOver,
+        isCombinedNear,
+        isCombinedOnTrack,
+        isCombinedUnbudgeted,
+        combinedShareOfTotal,
       };
     });
-  }, [categories, activeTransactions, transactions, totalPeriodDebited, timeframeMode, last6Months]);
+  }, [categories, allCategoryStatsMap, totalPeriodDebited, last6Months]);
 
   // Master allocation metrics
   const totalAllocatedBudget = useMemo(() => {
-    return categoryStatsList.reduce((sum, s) => sum + s.budget, 0);
-  }, [categoryStatsList]);
+    return Array.from(allCategoryStatsMap.values()).reduce((sum: number, s: ComputedCategoryStats) => sum + s.budget, 0);
+  }, [allCategoryStatsMap]);
 
   const unallocatedBudget = masterBudgetLimit - totalAllocatedBudget;
 
   // Filter Counts
-  const hasDebitsCount = categoryStatsList.filter(s => s.debitedAmount > 0).length;
-  const hasCreditsCount = categoryStatsList.filter(s => s.creditedAmount > 0).length;
-  const budgetedCategoriesCount = categoryStatsList.filter(s => s.hasBudget).length;
-  const overBudgetCount = categoryStatsList.filter(s => s.isOver).length;
-  const nearLimitCount = categoryStatsList.filter(s => s.isNear).length;
-  const onTrackCount = categoryStatsList.filter(s => s.isOnTrack).length;
-  const unbudgetedCount = categoryStatsList.filter(s => s.isUnbudgeted).length;
+  const allStatsList = useMemo(() => Array.from(allCategoryStatsMap.values()), [allCategoryStatsMap]);
+  const hasDebitsCount = allStatsList.filter(s => s.debitedAmount > 0).length;
+  const hasCreditsCount = allStatsList.filter(s => s.creditedAmount > 0).length;
+  const budgetedCategoriesCount = allStatsList.filter(s => s.hasBudget).length;
+  const overBudgetCount = allStatsList.filter(s => s.isOver).length;
+  const nearLimitCount = allStatsList.filter(s => s.isNear).length;
+  const onTrackCount = allStatsList.filter(s => s.isOnTrack).length;
+  const unbudgetedCount = allStatsList.filter(s => s.isUnbudgeted).length;
 
-  // Filtered and Sorted Categories for List View
-  const filteredAndSortedStats = useMemo(() => {
-    let result = categoryStatsList.filter(item => {
-      // Activity Filter
-      if (activityFilter === 'has_debits' && item.debitedAmount <= 0) return false;
-      if (activityFilter === 'has_credits' && item.creditedAmount <= 0) return false;
-      if (activityFilter === 'budgeted' && !item.hasBudget) return false;
-      if (activityFilter === 'over_budget' && !item.isOver) return false;
-      if (activityFilter === 'near_limit' && !item.isNear) return false;
-      if (activityFilter === 'on_track' && !item.isOnTrack) return false;
-      if (activityFilter === 'unbudgeted' && !item.isUnbudgeted) return false;
+  // Filtered and Sorted Hierarchical Categories
+  const filteredAndSortedGroups = useMemo(() => {
+    const q = (searchQuery || '').trim().toLowerCase();
 
-      // Search Query
-      const q = (searchQuery || '').trim().toLowerCase();
+    let groups = hierarchicalCategories.filter(group => {
+      // Search Matching: matches parent name OR any child subcategory name
+      let searchMatched = true;
       if (q) {
-        return (item.category?.name || '').toLowerCase().includes(q);
+        const parentMatch = group.parent.name.toLowerCase().includes(q);
+        const subMatch = group.subcategories.some(sub => sub.name.toLowerCase().includes(q));
+        searchMatched = parentMatch || subMatch;
       }
+      if (!searchMatched) return false;
+
+      // Activity Filter
+      if (activityFilter === 'has_debits' && group.totalCombinedDebited <= 0) return false;
+      if (activityFilter === 'has_credits' && group.totalCombinedCredited <= 0) return false;
+      if (activityFilter === 'budgeted' && !group.hasCombinedBudget) return false;
+      if (activityFilter === 'over_budget' && !group.isCombinedOver) return false;
+      if (activityFilter === 'near_limit' && !group.isCombinedNear) return false;
+      if (activityFilter === 'on_track' && !group.isCombinedOnTrack) return false;
+      if (activityFilter === 'unbudgeted' && !group.isCombinedUnbudgeted) return false;
 
       return true;
     });
 
     // Sorting
-    result.sort((a, b) => {
+    groups.sort((a, b) => {
       if (sortBy === 'debited_desc') {
-        return b.debitedAmount - a.debitedAmount;
+        return b.totalCombinedDebited - a.totalCombinedDebited;
       }
       if (sortBy === 'credited_desc') {
-        return b.creditedAmount - a.creditedAmount;
+        return b.totalCombinedCredited - a.totalCombinedCredited;
       }
       if (sortBy === 'budget_desc') {
-        return b.budget - a.budget;
+        return b.combinedBudget - a.combinedBudget;
       }
       if (sortBy === 'over_percent_desc') {
-        return b.budgetPercent - a.budgetPercent;
+        return b.combinedBudgetPercent - a.combinedBudgetPercent;
       }
       if (sortBy === 'tx_desc') {
-        return b.totalTxCount - a.totalTxCount;
+        return b.totalCombinedTxCount - a.totalCombinedTxCount;
       }
       if (sortBy === 'name_asc') {
-        return a.category.name.localeCompare(b.category.name);
+        return a.parent.name.localeCompare(b.parent.name);
       }
       return 0;
     });
 
-    return result;
-  }, [categoryStatsList, activityFilter, searchQuery, sortBy]);
+    return groups;
+  }, [hierarchicalCategories, activityFilter, searchQuery, sortBy]);
 
   // Open Add Modal
-  const handleOpenAddModal = () => {
+  const handleOpenAddModal = (parentId?: string) => {
     setFormName('');
-    const usedColors = new Set(categories.map(c => c.color.toUpperCase()));
-    const availableColor = CATEGORY_PALETTES.find(p => !usedColors.has(p.hex.toUpperCase())) || CATEGORY_PALETTES[0];
-    setFormColor(availableColor.hex);
+    setFormParentId(parentId || '');
+
+    if (parentId) {
+      const parentCat = categories.find(c => c.id === parentId);
+      if (parentCat) {
+        setFormColor(parentCat.color);
+      }
+    } else {
+      const usedColors = new Set(categories.map(c => c.color.toUpperCase()));
+      const availableColor = CATEGORY_PALETTES.find(p => !usedColors.has(p.hex.toUpperCase())) || CATEGORY_PALETTES[0];
+      setFormColor(availableColor.hex);
+    }
+
     setFormIcon('Tag');
     setFormBudgetLimit('');
     setIconSearch('');
@@ -382,9 +530,11 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   };
 
   // Open Edit Modal
-  const handleOpenEditModal = (cat: Category) => {
+  const handleOpenEditModal = (cat: Category, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     setEditingCategory(cat);
     setFormName(cat.name);
+    setFormParentId(cat.parentId || '');
     setFormColor(cat.color);
     setFormIcon(cat.icon || 'Tag');
     setFormBudgetLimit(cat.budgetLimit ? String(cat.budgetLimit) : '');
@@ -392,8 +542,9 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   };
 
   // Open Delete Modal
-  const handleOpenDeleteModal = (cat: Category) => {
-    const stats = categoryStatsList.find(s => s.category.id === cat.id);
+  const handleOpenDeleteModal = (cat: Category, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const stats = allCategoryStatsMap.get(cat.id);
     const txCount = stats?.totalTxCount || 0;
     setDeletingCategory(cat);
     if (txCount > 0) {
@@ -416,10 +567,18 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
       name: formName.trim(),
       color: formColor,
       icon: formIcon,
+      type: 'expense',
+      parentId: formParentId ? formParentId : undefined,
       budgetLimit: parsedBudget && parsedBudget > 0 ? parsedBudget : undefined
     };
 
     onAddCategory(newCategory);
+
+    // Auto expand parent if adding a subcategory
+    if (formParentId) {
+      setExpandedCategoryIds(prev => new Set(prev).add(formParentId));
+    }
+
     setIsAddModalOpen(false);
   };
 
@@ -434,8 +593,13 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
       name: formName.trim(),
       color: formColor,
       icon: formIcon,
+      parentId: formParentId ? formParentId : undefined,
       budgetLimit: parsedBudget && parsedBudget > 0 ? parsedBudget : undefined
     });
+
+    if (formParentId) {
+      setExpandedCategoryIds(prev => new Set(prev).add(formParentId));
+    }
 
     setEditingCategory(null);
   };
@@ -467,13 +631,17 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
     );
   }, [iconSearch]);
 
+  // Main top level categories available for parent dropdown
+  const topLevelCategoryOptions = useMemo(() => {
+    return categories.filter(c => !c.parentId && (!editingCategory || c.id !== editingCategory.id));
+  }, [categories, editingCategory]);
+
   return (
     <div className="space-y-6 pb-16 animate-fadeIn">
       {/* Top Bar: Timeframe Navigation & Actions */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 flex-wrap">
         {/* Left: Timeframe / Month / Year Navigation */}
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Stepper based on active timeframe mode */}
           {timeframeMode === 'monthly' && (
             <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 shadow-2xs">
               <button
@@ -505,7 +673,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
-              <span className="px-3 text-xs font-bold text-slate-800 min-w-[100px] text-center">
+              <span className="px-3 text-xs font-bold text-slate-800 min-w-[90px] text-center">
                 Year {selectedYear}
               </span>
               <button
@@ -518,43 +686,53 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
             </div>
           )}
 
-          {timeframeMode === 'all_time' && (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold border border-slate-200">
-              <CalendarIcon className="w-4 h-4 text-blue-600" />
-              <span>All-Time Aggregate</span>
-            </div>
-          )}
-
-          {/* Timeframe Presets: Current Month, Current Year, All Time */}
-          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+          {/* Quick Jump Buttons */}
+          {timeframeMode === 'monthly' && !isCurrentMonth && (
             <button
               onClick={handleJumpToCurrentMonth}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${
-                timeframeMode === 'monthly' && isCurrentMonth
-                  ? 'bg-white text-blue-700 font-bold shadow-2xs border border-slate-200/80' 
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
-              }`}
+              className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl text-xs font-semibold transition border border-blue-200 cursor-pointer"
             >
               Current Month
             </button>
+          )}
 
+          {timeframeMode === 'yearly' && !isCurrentYear && (
             <button
               onClick={handleJumpToCurrentYear}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${
-                timeframeMode === 'yearly' && isCurrentYear
-                  ? 'bg-white text-blue-700 font-bold shadow-2xs border border-slate-200/80' 
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
-              }`}
+              className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl text-xs font-semibold transition border border-blue-200 cursor-pointer"
             >
               Current Year
             </button>
+          )}
 
+          {/* Timeframe Scope Selector */}
+          <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold">
+            <button
+              onClick={() => setTimeframeMode('monthly')}
+              className={`px-3 py-1 rounded-lg transition cursor-pointer ${
+                timeframeMode === 'monthly'
+                  ? 'bg-white text-blue-700 shadow-2xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Monthly
+            </button>
+            <button
+              onClick={() => setTimeframeMode('yearly')}
+              className={`px-3 py-1 rounded-lg transition cursor-pointer ${
+                timeframeMode === 'yearly'
+                  ? 'bg-white text-blue-700 shadow-2xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Yearly
+            </button>
             <button
               onClick={() => setTimeframeMode('all_time')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${
+              className={`px-3 py-1 rounded-lg transition cursor-pointer ${
                 timeframeMode === 'all_time'
-                  ? 'bg-white text-blue-700 font-bold shadow-2xs border border-slate-200/80' 
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                  ? 'bg-white text-blue-700 shadow-2xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               All Time
@@ -562,41 +740,54 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
           </div>
         </div>
 
-        {/* Right: Actions */}
-        <div className="flex items-center gap-2 justify-end">
+        {/* Right Actions: Add Category, Reset, Expand All */}
+        <div className="flex items-center gap-2">
           {onResetCategories && (
             <button
               onClick={() => setIsResetModalOpen(true)}
-              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer"
-              title="Reset default categories"
+              className="px-3 py-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl text-xs font-semibold transition border border-slate-200 flex items-center gap-1.5 cursor-pointer"
+              title="Reset to default categories"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              <span>Defaults</span>
+              <span className="hidden sm:inline">Reset Defaults</span>
             </button>
           )}
 
+          <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
+            <button
+              onClick={expandAll}
+              className="px-2 py-1.5 text-[11px] font-bold text-slate-700 hover:text-slate-900 hover:bg-white rounded-lg transition cursor-pointer"
+              title="Expand all subcategory groups"
+            >
+              Expand All
+            </button>
+            <button
+              onClick={collapseAll}
+              className="px-2 py-1.5 text-[11px] font-bold text-slate-700 hover:text-slate-900 hover:bg-white rounded-lg transition cursor-pointer"
+              title="Collapse all subcategory groups"
+            >
+              Collapse All
+            </button>
+          </div>
+
           <button
-            onClick={handleOpenAddModal}
-            id="btn-add-category-main"
-            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs transition active:scale-95 cursor-pointer"
+            onClick={() => handleOpenAddModal()}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-2xs transition flex items-center gap-1.5 active:scale-95 cursor-pointer"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-4 h-4 stroke-[2.5]" />
             <span>New Category</span>
           </button>
         </div>
       </div>
 
-      {/* Master Overview Card: Total Debits, Total Credits, Master Budget, Runway */}
-      <div className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200/90 shadow-sm space-y-6">
-        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
-          {/* Master Budget Info */}
-          <div className="space-y-1.5 max-w-sm">
+      {/* Monthly Budget Allocation Strip & Summary Card */}
+      <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/90 shadow-sm space-y-4">
+        {/* Header & Budget Setting */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div>
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
-                <Target className="w-4 h-4" />
-              </div>
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
-                {timeframeMode === 'yearly' ? 'Annual Spending Budget' : 'Monthly Spending Budget'}
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                {timeframeMode === 'monthly' ? 'Monthly Master Budget' : (timeframeMode === 'yearly' ? 'Yearly Master Budget' : 'All-Time Spending Target')}
               </span>
               {!editingMasterBudget && (
                 <button
@@ -658,7 +849,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
           </div>
 
           {/* Quick Metrics Strip */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 w-full lg:w-auto">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full lg:w-auto">
             {/* Total Debited (Spent) */}
             <div className="bg-slate-50/80 rounded-2xl p-3 border border-slate-100 min-w-[125px]">
               <span className="text-[10px] font-bold uppercase text-slate-600 flex items-center gap-1">
@@ -743,339 +934,530 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
         </div>
 
         {/* Category Budget Allocation Strip & Quick Health Filters */}
-        <div className="pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs">
-          {/* Allocation Info */}
+        <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-3 text-slate-600 flex-wrap">
             <span className="font-semibold">
               Category Budgets: <strong className="text-slate-900">{user.currency}{totalAllocatedBudget.toLocaleString('en-IN')}</strong> allocated
             </span>
             <span className="text-slate-300">•</span>
-            <span className="font-semibold">
-              Unallocated: <strong className={unallocatedBudget < 0 ? 'text-rose-600' : 'text-slate-900'}>
-                {user.currency}{unallocatedBudget.toLocaleString('en-IN')}
-              </strong>
-            </span>
-            <span className="text-slate-300">•</span>
-            <span className="font-semibold">
-              Net Balance: <strong className={netPeriodBalance >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
-                {netPeriodBalance >= 0 ? '+' : ''}{user.currency}{netPeriodBalance.toLocaleString('en-IN')}
-              </strong>
+            <span className={`font-semibold ${unallocatedBudget < 0 ? 'text-rose-600 font-bold' : 'text-slate-600'}`}>
+              {unallocatedBudget >= 0 
+                ? `${user.currency}${unallocatedBudget.toLocaleString('en-IN')} unallocated` 
+                : `${user.currency}${Math.abs(unallocatedBudget).toLocaleString('en-IN')} over-allocated`}
             </span>
           </div>
 
-          {/* Quick Health & Activity Filter Chips */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <button
-              onClick={() => setActivityFilter('all')}
-              className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition ${
-                activityFilter === 'all'
-                  ? 'bg-slate-900 text-white shadow-2xs'
-                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-              }`}
-            >
-              All ({categories.length})
-            </button>
-            <button
-              onClick={() => setActivityFilter('has_debits')}
-              className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition ${
-                activityFilter === 'has_debits'
-                  ? 'bg-rose-600 text-white shadow-2xs'
-                  : 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/50'
-              }`}
-            >
-              Debits ({hasDebitsCount})
-            </button>
-            <button
-              onClick={() => setActivityFilter('has_credits')}
-              className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition ${
-                activityFilter === 'has_credits'
-                  ? 'bg-emerald-600 text-white shadow-2xs'
-                  : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/50'
-              }`}
-            >
-              Credits ({hasCreditsCount})
-            </button>
-            <button
-              onClick={() => setActivityFilter('budgeted')}
-              className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition ${
-                activityFilter === 'budgeted'
-                  ? 'bg-blue-600 text-white shadow-2xs'
-                  : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200/50'
-              }`}
-            >
-              Budgeted ({budgetedCategoriesCount})
-            </button>
+          <div className="flex items-center gap-2 flex-wrap">
             {overBudgetCount > 0 && (
               <button
                 onClick={() => setActivityFilter('over_budget')}
-                className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition flex items-center gap-1 ${
-                  activityFilter === 'over_budget'
-                    ? 'bg-rose-600 text-white shadow-2xs'
-                    : 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/50'
-                }`}
+                className="px-2 py-0.5 rounded-md bg-rose-50 border border-rose-200 text-rose-700 text-[11px] font-bold flex items-center gap-1 cursor-pointer hover:bg-rose-100 transition"
               >
                 <AlertTriangle className="w-3 h-3" />
-                <span>Over Limit ({overBudgetCount})</span>
+                <span>{overBudgetCount} over budget</span>
               </button>
             )}
             {nearLimitCount > 0 && (
               <button
                 onClick={() => setActivityFilter('near_limit')}
-                className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition flex items-center gap-1 ${
-                  activityFilter === 'near_limit'
-                    ? 'bg-amber-600 text-white shadow-2xs'
-                    : 'bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200/50'
-                }`}
+                className="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-bold flex items-center gap-1 cursor-pointer hover:bg-amber-100 transition"
               >
-                <span>Near Limit ({nearLimitCount})</span>
+                <AlertCircle className="w-3 h-3" />
+                <span>{nearLimitCount} near limit (75%+)</span>
               </button>
             )}
-            <button
-              onClick={() => setActivityFilter('on_track')}
-              className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition ${
-                activityFilter === 'on_track'
-                  ? 'bg-emerald-600 text-white shadow-2xs'
-                  : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/50'
-              }`}
-            >
-              On Track ({onTrackCount})
-            </button>
-            <button
-              onClick={() => setActivityFilter('unbudgeted')}
-              className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition ${
-                activityFilter === 'unbudgeted'
-                  ? 'bg-slate-700 text-white shadow-2xs'
-                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-              }`}
-            >
-              Unbudgeted ({unbudgetedCount})
-            </button>
           </div>
         </div>
       </div>
 
-      {/* Toolbar: Search, Sort, Stats */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-        {/* Left: Summary text */}
-        <div className="text-xs font-bold text-slate-700">
-          Showing <span className="text-blue-600">{filteredAndSortedStats.length}</span> of {categories.length} categories
-        </div>
-
-        {/* Right: Sort & Search */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-          {/* Sort Selector */}
-          <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
-            <ArrowUpDown className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
-            <span className="text-xs font-bold text-slate-700 whitespace-nowrap">Sort:</span>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              className="bg-transparent text-xs font-bold text-slate-900 focus:outline-none cursor-pointer"
-            >
-              <option value="debited_desc">Highest Debited (Spend)</option>
-              <option value="credited_desc">Highest Credited (Income)</option>
-              <option value="budget_desc">Highest Budget Limit</option>
-              <option value="over_percent_desc">Highest Budget % Used</option>
-              <option value="tx_desc">Most Transactions</option>
-              <option value="name_asc">Name (A-Z)</option>
-            </select>
-          </div>
-
-          {/* Search Box */}
-          <div className="relative w-full sm:w-64">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+      {/* Filter & Search Bar */}
+      <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs space-y-3">
+        {/* Row 1: Search & Sorting */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
+              placeholder="Search category or subcategory name..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search category name..."
-              className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             {searchQuery && (
-              <button 
+              <button
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">Sort by:</span>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="debited_desc">Debited (Spent: High to Low)</option>
+              <option value="credited_desc">Credited (Income: High to Low)</option>
+              <option value="budget_desc">Budget Limit (High to Low)</option>
+              <option value="over_percent_desc">Budget Usage (% High to Low)</option>
+              <option value="tx_desc">Activity (Most Transactions)</option>
+              <option value="name_asc">Alphabetical (A - Z)</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Row 2: Filter Pills */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
+          <button
+            onClick={() => setActivityFilter('all')}
+            className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition cursor-pointer ${
+              activityFilter === 'all'
+                ? 'bg-slate-900 text-white shadow-2xs'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            All ({categories.length})
+          </button>
+
+          <button
+            onClick={() => setActivityFilter('has_debits')}
+            className={`px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition cursor-pointer ${
+              activityFilter === 'has_debits'
+                ? 'bg-rose-600 text-white font-bold shadow-2xs'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            With Debits ({hasDebitsCount})
+          </button>
+
+          <button
+            onClick={() => setActivityFilter('has_credits')}
+            className={`px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition cursor-pointer ${
+              activityFilter === 'has_credits'
+                ? 'bg-emerald-600 text-white font-bold shadow-2xs'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            With Income ({hasCreditsCount})
+          </button>
+
+          <button
+            onClick={() => setActivityFilter('budgeted')}
+            className={`px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition cursor-pointer ${
+              activityFilter === 'budgeted'
+                ? 'bg-blue-600 text-white font-bold shadow-2xs'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            Budgeted ({budgetedCategoriesCount})
+          </button>
+
+          <button
+            onClick={() => setActivityFilter('over_budget')}
+            className={`px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition cursor-pointer ${
+              activityFilter === 'over_budget'
+                ? 'bg-rose-700 text-white font-bold shadow-2xs'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            Over Budget ({overBudgetCount})
+          </button>
+
+          <button
+            onClick={() => setActivityFilter('near_limit')}
+            className={`px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition cursor-pointer ${
+              activityFilter === 'near_limit'
+                ? 'bg-amber-600 text-white font-bold shadow-2xs'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            Near Limit ({nearLimitCount})
+          </button>
+
+          <button
+            onClick={() => setActivityFilter('on_track')}
+            className={`px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition cursor-pointer ${
+              activityFilter === 'on_track'
+                ? 'bg-emerald-700 text-white font-bold shadow-2xs'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            On Track ({onTrackCount})
+          </button>
+
+          <button
+            onClick={() => setActivityFilter('unbudgeted')}
+            className={`px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition cursor-pointer ${
+              activityFilter === 'unbudgeted'
+                ? 'bg-slate-700 text-white font-bold shadow-2xs'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            No Limit ({unbudgetedCount})
+          </button>
         </div>
       </div>
 
-      {/* Main Categories List View */}
+      {/* Categories & Subcategories Hierarchical List */}
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-        {/* List Header on Desktop */}
+        {/* Desktop Table Header */}
         <div className="hidden lg:grid lg:grid-cols-12 gap-4 px-6 py-3.5 bg-slate-50/90 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-600">
-          <div className="col-span-4">Category</div>
+          <div className="col-span-4">Category & Subcategories</div>
           <div className="col-span-3 text-right">Debited & 6M Trend</div>
           <div className="col-span-2 text-right">Credited (Inflow)</div>
           <div className="col-span-3">Expense Budget & Progress</div>
         </div>
 
-        {/* Category Rows */}
-        {filteredAndSortedStats.length > 0 ? (
+        {/* Group Rows */}
+        {filteredAndSortedGroups.length > 0 ? (
           <div className="divide-y divide-slate-100">
-            {filteredAndSortedStats.map((item) => {
-              const { 
-                category, 
-                baseBudget,
-                debitedAmount, 
-                debitCount, 
-                creditedAmount, 
-                creditCount, 
-                totalTxCount, 
-                spendingTrend6M,
-                budget, 
-                hasBudget, 
-                budgetPercent, 
-                budgetRemaining, 
-                isOver, 
-                isNear, 
-                shareOfTotalDebited 
-              } = item;
+            {filteredAndSortedGroups.map((group) => {
+              const {
+                parent,
+                parentStats,
+                subcategories,
+                subStatsList,
+                totalCombinedDebited,
+                totalCombinedCredited,
+                totalCombinedDebitCount,
+                totalCombinedCreditCount,
+                totalCombinedTxCount,
+                combinedSpendingTrend6M,
+                combinedBudget,
+                hasCombinedBudget,
+                combinedBudgetPercent,
+                combinedBudgetRemaining,
+                isCombinedOver,
+                isCombinedNear,
+                combinedShareOfTotal
+              } = group;
 
-              const clampedPercent = Math.min(Math.max(budgetPercent, 0), 100);
+              const isExpanded = expandedCategoryIds.has(parent.id);
+              const clampedPercent = Math.min(Math.max(combinedBudgetPercent, 0), 100);
 
               return (
-                <div 
-                  key={category.id} 
-                  onClick={() => handleOpenEditModal(category)}
-                  className="px-5 sm:px-6 py-4 hover:bg-blue-50/40 transition-colors flex flex-col lg:grid lg:grid-cols-12 gap-3.5 lg:gap-4 items-stretch lg:items-center relative group cursor-pointer"
-                  title="Click to view details, edit budget or category settings"
-                >
-                  {/* Col 1: Category Icon & Name */}
-                  <div className="lg:col-span-4 flex items-center gap-3.5 min-w-0">
-                    <div 
-                      className="w-10 h-10 rounded-2xl flex items-center justify-center text-white shadow-2xs flex-shrink-0 group-hover:scale-105 transition-transform"
-                      style={{ backgroundColor: category.color }}
-                    >
-                      <CategoryIcon iconName={category.icon || 'Tag'} className="w-5 h-5" />
-                    </div>
+                <div key={parent.id} className="p-3 sm:p-4 hover:bg-slate-50/60 transition-colors space-y-2">
+                  {/* MAIN CATEGORY ROW */}
+                  <div 
+                    onClick={() => handleOpenEditModal(parent)}
+                    className="p-3 sm:p-4 rounded-2xl bg-white hover:bg-blue-50/50 border border-slate-200/80 shadow-2xs hover:shadow-xs transition-all flex flex-col lg:grid lg:grid-cols-12 gap-3.5 lg:gap-4 items-stretch lg:items-center relative group cursor-pointer"
+                  >
+                    {/* Col 1: Expand Button, Icon, Name & Subcategory Count Badge */}
+                    <div className="lg:col-span-4 flex items-center gap-3 min-w-0">
+                      {/* Expand / Collapse Chevron */}
+                      {subcategories.length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={(e) => toggleExpand(parent.id, e)}
+                          className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition cursor-pointer flex-shrink-0"
+                          title={isExpanded ? 'Collapse subcategories' : 'Expand subcategories'}
+                        >
+                          {isExpanded ? (
+                            <ChevronDown className="w-4 h-4 text-blue-600 stroke-[2.5]" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4 text-slate-500 stroke-[2.5]" />
+                          )}
+                        </button>
+                      ) : (
+                        <div className="w-6 h-6 flex-shrink-0" />
+                      )}
 
-                    {/* Name & Total Count */}
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-slate-900 group-hover:text-blue-700 transition-colors truncate block">
-                          {category.name}
-                        </span>
+                      {/* Main Category Icon */}
+                      <div 
+                        className="w-10 h-10 rounded-2xl flex items-center justify-center text-white shadow-2xs flex-shrink-0 group-hover:scale-105 transition-transform"
+                        style={{ backgroundColor: parent.color }}
+                      >
+                        <CategoryIcon iconName={parent.icon || 'Tag'} className="w-5 h-5" />
                       </div>
-                      <p className="text-[11px] text-slate-600 truncate mt-0.5">
-                        {totalTxCount > 0 ? (
-                          <span>{totalTxCount} total {totalTxCount === 1 ? 'transaction' : 'transactions'}</span>
-                        ) : (
-                          <span>No transactions in period</span>
-                        )}
-                        {debitedAmount > 0 && shareOfTotalDebited > 0 && (
-                          <span className="text-slate-600 ml-1.5 font-medium">({shareOfTotalDebited.toFixed(1)}% of spending)</span>
-                        )}
-                      </p>
-                    </div>
-                  </div>
 
-                  {/* Col 2: Debited (Outflow) Amount, Count & 6M Sparkline Trend */}
-                  <div className="lg:col-span-3 flex lg:flex-row items-center justify-between lg:justify-end gap-3 text-xs">
-                    <span className="lg:hidden text-slate-600 font-medium">Debited & Trend:</span>
-                    <div className="flex items-center gap-3">
-                      {/* Mini Sparkline Chart for 6-Month Spending Trend */}
-                      <CategorySparkline 
-                        data={spendingTrend6M} 
-                        color={category.color || '#3B82F6'} 
-                        currency={user.currency}
-                        width={64}
-                        height={24}
-                      />
+                      {/* Name & Hierarchy Info */}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-extrabold text-slate-900 group-hover:text-blue-700 transition-colors truncate">
+                            {parent.name}
+                          </span>
 
-                      <div className="text-right">
-                        <span className="text-sm font-extrabold text-slate-900 block privacy-value">
-                          {debitedAmount > 0 ? `${user.currency}${debitedAmount.toLocaleString('en-IN')}` : `${user.currency}0`}
-                        </span>
-                        <span className="text-[10px] text-slate-600 font-semibold block">
-                          {debitCount} {debitCount === 1 ? 'debit txn' : 'debit txns'}
-                        </span>
+                          {subcategories.length > 0 && (
+                            <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[10px] font-bold border border-slate-200">
+                              {subcategories.length} {subcategories.length === 1 ? 'sub-category' : 'sub-categories'}
+                            </span>
+                          )}
+                        </div>
+
+                        <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                          {totalCombinedTxCount > 0 ? (
+                            <span>{totalCombinedTxCount} total {totalCombinedTxCount === 1 ? 'txn' : 'txns'}</span>
+                          ) : (
+                            <span>No transactions</span>
+                          )}
+                          {totalCombinedDebited > 0 && combinedShareOfTotal > 0 && (
+                            <span className="text-slate-600 ml-1.5 font-medium">({combinedShareOfTotal.toFixed(1)}% of total spend)</span>
+                          )}
+                        </p>
                       </div>
+
+                      {/* Quick Add Subcategory Trigger inside parent row */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenAddModal(parent.id);
+                        }}
+                        className="hidden sm:flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition opacity-80 group-hover:opacity-100 flex-shrink-0 cursor-pointer"
+                        title={`Add subcategory under ${parent.name}`}
+                      >
+                        <Plus className="w-3 h-3 stroke-[2.5]" />
+                        <span>Sub</span>
+                      </button>
                     </div>
-                  </div>
 
-                  {/* Col 3: Credited (Inflow) Amount & Count */}
-                  <div className="lg:col-span-2 flex lg:flex-col items-center lg:items-end justify-between text-xs">
-                    <span className="lg:hidden text-slate-600 font-medium">Credited:</span>
-                    <div className="text-right">
-                      <span className={`text-sm font-extrabold block privacy-value ${
-                        creditedAmount > 0 ? 'text-emerald-700' : 'text-slate-600'
-                      }`}>
-                        {creditedAmount > 0 ? `+${user.currency}${creditedAmount.toLocaleString('en-IN')}` : `${user.currency}0`}
-                      </span>
-                      <span className="text-[10px] text-slate-600 font-semibold block">
-                        {creditCount} {creditCount === 1 ? 'credit txn' : 'credit txns'}
-                      </span>
-                    </div>
-                  </div>
+                    {/* Col 2: Debited & 6M Sparkline */}
+                    <div className="lg:col-span-3 flex lg:flex-row items-center justify-between lg:justify-end gap-3 text-xs">
+                      <span className="lg:hidden text-slate-600 font-medium">Debited & Trend:</span>
+                      <div className="flex items-center gap-3">
+                        <CategorySparkline 
+                          data={combinedSpendingTrend6M} 
+                          color={parent.color || '#3B82F6'} 
+                          currency={user.currency}
+                          width={64}
+                          height={24}
+                        />
 
-                  {/* Col 4: Expense Budget & Progress Bar */}
-                  <div className="lg:col-span-3 space-y-1.5">
-                    {hasBudget ? (
-                      /* Category has an Expense Budget Limit set */
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between text-xs">
-                          <div className="flex items-baseline gap-1 flex-wrap">
-                            <span className="font-extrabold text-slate-900 privacy-value">
-                              {user.currency}{debitedAmount.toLocaleString('en-IN')}
-                            </span>
-                            <span className="text-slate-600 text-[11px] privacy-value">
-                              / {user.currency}{budget.toLocaleString('en-IN')}
-                            </span>
-                            {timeframeMode === 'yearly' && (
-                              <span className="text-[10px] text-slate-600 font-medium ml-1">
-                                ({user.currency}{baseBudget.toLocaleString('en-IN')}/mo × 12)
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Budget Status Badge */}
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
-                            isOver 
-                              ? 'bg-rose-50 text-rose-700 border border-rose-200' 
-                              : isNear 
-                                ? 'bg-amber-50 text-amber-800 border border-amber-200' 
-                                : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          }`}>
-                            {isOver ? (
-                              <>
-                                <AlertTriangle className="w-2.5 h-2.5" />
-                                <span>{budgetPercent.toFixed(0)}% (Over by {user.currency}{Math.abs(budgetRemaining).toLocaleString('en-IN')})</span>
-                              </>
-                            ) : (
-                              <span>{budgetPercent.toFixed(0)}% ({user.currency}{budgetRemaining.toLocaleString('en-IN')} left)</span>
-                            )}
+                        <div className="text-right">
+                          <span className="text-sm font-extrabold text-slate-900 block privacy-value">
+                            {totalCombinedDebited > 0 ? `${user.currency}${totalCombinedDebited.toLocaleString('en-IN')}` : `${user.currency}0`}
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-semibold block">
+                            {totalCombinedDebitCount} {totalCombinedDebitCount === 1 ? 'debit txn' : 'debit txns'}
                           </span>
                         </div>
-
-                        {/* Progress Bar showing percentage */}
-                        <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden border border-slate-200/50">
-                          <div
-                            className={`h-full rounded-full transition-all duration-300 ${
-                              isOver 
-                                ? 'bg-rose-500' 
-                                : isNear 
-                                  ? 'bg-amber-500' 
-                                  : 'bg-emerald-500'
-                            }`}
-                            style={{ width: `${clampedPercent}%` }}
-                          />
-                        </div>
                       </div>
-                    ) : (
-                      /* No Expense Budget Limit Set */
-                      <div className="flex items-center justify-between text-xs py-1">
-                        <span className="text-[11px] text-slate-500 font-medium">No budget limit set</span>
-                        <span className="text-[11px] font-semibold text-blue-600 group-hover:text-blue-700 flex items-center gap-0.5">
-                          <span>Set limit</span>
-                          <ChevronRight className="w-3.5 h-3.5" />
+                    </div>
+
+                    {/* Col 3: Credited */}
+                    <div className="lg:col-span-2 flex lg:flex-col items-center lg:items-end justify-between text-xs">
+                      <span className="lg:hidden text-slate-600 font-medium">Credited:</span>
+                      <div className="text-right">
+                        <span className={`text-sm font-extrabold block privacy-value ${
+                          totalCombinedCredited > 0 ? 'text-emerald-700' : 'text-slate-500'
+                        }`}>
+                          {totalCombinedCredited > 0 ? `+${user.currency}${totalCombinedCredited.toLocaleString('en-IN')}` : `${user.currency}0`}
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-semibold block">
+                          {totalCombinedCreditCount} {totalCombinedCreditCount === 1 ? 'credit txn' : 'credit txns'}
                         </span>
                       </div>
-                    )}
+                    </div>
+
+                    {/* Col 4: Budget Progress */}
+                    <div className="lg:col-span-3 space-y-1.5">
+                      {hasCombinedBudget ? (
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <div className="flex items-baseline gap-1 flex-wrap">
+                              <span className="font-extrabold text-slate-900 privacy-value">
+                                {user.currency}{totalCombinedDebited.toLocaleString('en-IN')}
+                              </span>
+                              <span className="text-slate-500 text-[11px] privacy-value">
+                                / {user.currency}{combinedBudget.toLocaleString('en-IN')}
+                              </span>
+                            </div>
+
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                              isCombinedOver 
+                                ? 'bg-rose-50 text-rose-700 border border-rose-200' 
+                                : isCombinedNear 
+                                  ? 'bg-amber-50 text-amber-800 border border-amber-200' 
+                                  : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            }`}>
+                              {isCombinedOver ? (
+                                <>
+                                  <AlertTriangle className="w-2.5 h-2.5" />
+                                  <span>{combinedBudgetPercent.toFixed(0)}% (Over by {user.currency}{Math.abs(combinedBudgetRemaining).toLocaleString('en-IN')})</span>
+                                </>
+                              ) : (
+                                <span>{combinedBudgetPercent.toFixed(0)}% ({user.currency}{combinedBudgetRemaining.toLocaleString('en-IN')} left)</span>
+                              )}
+                            </span>
+                          </div>
+
+                          <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden border border-slate-200/50">
+                            <div
+                              className={`h-full rounded-full transition-all duration-300 ${
+                                isCombinedOver 
+                                  ? 'bg-rose-500' 
+                                  : isCombinedNear 
+                                    ? 'bg-amber-500' 
+                                    : 'bg-emerald-500'
+                              }`}
+                              style={{ width: `${clampedPercent}%` }}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between text-xs py-1">
+                          <span className="text-[11px] text-slate-500 font-medium">No budget limit set</span>
+                          <span className="text-[11px] font-semibold text-blue-600 group-hover:text-blue-700 flex items-center gap-0.5">
+                            <span>Set limit</span>
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
+
+                  {/* INDENTED SUB-CATEGORIES SECTION */}
+                  {isExpanded && subcategories.length > 0 && (
+                    <div className="ml-6 sm:ml-12 border-l-2 border-slate-200/90 pl-3 sm:pl-5 space-y-2 py-1">
+                      {subStatsList.map((subStat) => {
+                        const {
+                          category: subCat,
+                          debitedAmount: subDebited,
+                          debitCount: subDebitCount,
+                          creditedAmount: subCredited,
+                          creditCount: subCreditCount,
+                          totalTxCount: subTxCount,
+                          spendingTrend6M: subTrend,
+                          budget: subBudget,
+                          hasBudget: subHasBudget,
+                          budgetPercent: subBudgetPercent,
+                          budgetRemaining: subBudgetRemaining,
+                          isOver: subIsOver,
+                          isNear: subIsNear,
+                        } = subStat;
+
+                        const subClampedPercent = Math.min(Math.max(subBudgetPercent, 0), 100);
+
+                        return (
+                          <div
+                            key={subCat.id}
+                            onClick={() => handleOpenEditModal(subCat)}
+                            className="p-3 rounded-2xl bg-slate-50/80 hover:bg-blue-50/60 border border-slate-200/70 transition-all flex flex-col lg:grid lg:grid-cols-12 gap-3 lg:gap-4 items-stretch lg:items-center relative group/sub cursor-pointer shadow-2xs"
+                          >
+                            {/* Col 1: Branch Connector, Subcategory Icon, Name */}
+                            <div className="lg:col-span-4 flex items-center gap-2.5 min-w-0">
+                              <CornerDownRight className="w-4 h-4 text-slate-400 flex-shrink-0 stroke-[2]" />
+
+                              {/* Subcategory Icon (slightly smaller) */}
+                              <div 
+                                className="w-8 h-8 rounded-xl flex items-center justify-center text-white shadow-2xs flex-shrink-0 group-hover/sub:scale-105 transition-transform"
+                                style={{ backgroundColor: subCat.color || parent.color }}
+                              >
+                                <CategoryIcon iconName={subCat.icon || 'Tag'} className="w-4 h-4" />
+                              </div>
+
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs font-bold text-slate-800 group-hover/sub:text-blue-700 transition-colors truncate">
+                                    {subCat.name}
+                                  </span>
+                                  <span className="text-[10px] font-semibold text-slate-600 bg-white px-1.5 py-0.2 rounded border border-slate-200">
+                                    sub
+                                  </span>
+                                </div>
+                                <span className="text-[10px] text-slate-500 block">
+                                  {subTxCount} {subTxCount === 1 ? 'transaction' : 'transactions'}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Col 2: Subcategory Debited & Sparkline */}
+                            <div className="lg:col-span-3 flex lg:flex-row items-center justify-between lg:justify-end gap-2.5 text-xs">
+                              <span className="lg:hidden text-slate-500 font-medium text-[11px]">Debited:</span>
+                              <div className="flex items-center gap-2.5">
+                                <CategorySparkline 
+                                  data={subTrend} 
+                                  color={subCat.color || parent.color || '#3B82F6'} 
+                                  currency={user.currency}
+                                  width={52}
+                                  height={20}
+                                />
+
+                                <div className="text-right">
+                                  <span className="text-xs font-bold text-slate-900 block privacy-value">
+                                    {subDebited > 0 ? `${user.currency}${subDebited.toLocaleString('en-IN')}` : `${user.currency}0`}
+                                  </span>
+                                  <span className="text-[10px] text-slate-500 font-medium block">
+                                    {subDebitCount} debits
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Col 3: Subcategory Credited */}
+                            <div className="lg:col-span-2 flex lg:flex-col items-center lg:items-end justify-between text-xs">
+                              <span className="lg:hidden text-slate-500 font-medium text-[11px]">Credited:</span>
+                              <div className="text-right">
+                                <span className={`text-xs font-bold block privacy-value ${
+                                  subCredited > 0 ? 'text-emerald-700' : 'text-slate-500'
+                                }`}>
+                                  {subCredited > 0 ? `+${user.currency}${subCredited.toLocaleString('en-IN')}` : `${user.currency}0`}
+                                </span>
+                                <span className="text-[10px] text-slate-500 font-medium block">
+                                  {subCreditCount} credits
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Col 4: Subcategory Budget Progress */}
+                            <div className="lg:col-span-3">
+                              {subHasBudget ? (
+                                <div className="space-y-1">
+                                  <div className="flex items-center justify-between text-[11px]">
+                                    <span className="font-bold text-slate-800 privacy-value">
+                                      {user.currency}{subDebited.toLocaleString('en-IN')} / {user.currency}{subBudget.toLocaleString('en-IN')}
+                                    </span>
+                                    <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-md ${
+                                      subIsOver 
+                                        ? 'bg-rose-50 text-rose-700' 
+                                        : subIsNear 
+                                          ? 'bg-amber-50 text-amber-800' 
+                                          : 'bg-emerald-50 text-emerald-700'
+                                    }`}>
+                                      {subBudgetPercent.toFixed(0)}%
+                                    </span>
+                                  </div>
+                                  <div className="w-full h-1.5 bg-slate-200/80 rounded-full overflow-hidden">
+                                    <div
+                                      className={`h-full rounded-full ${
+                                        subIsOver 
+                                          ? 'bg-rose-500' 
+                                          : subIsNear 
+                                            ? 'bg-amber-500' 
+                                            : 'bg-emerald-500'
+                                      }`}
+                                      style={{ width: `${subClampedPercent}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="text-[11px] text-slate-500 flex items-center justify-between">
+                                  <span>Part of parent budget</span>
+                                  <span className="text-blue-600 text-[10px] font-semibold hover:underline">
+                                    Set limit
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {/* Direct button to add subcategory under this parent */}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenAddModal(parent.id)}
+                        className="w-full py-2 px-3 border border-dashed border-slate-300 hover:border-blue-400 bg-white hover:bg-blue-50/50 rounded-xl text-xs font-semibold text-slate-600 hover:text-blue-700 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Add Sub-category under {parent.name}</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -1092,7 +1474,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 : 'Get started by creating your first category.'}
             </p>
             <button
-              onClick={handleOpenAddModal}
+              onClick={() => handleOpenAddModal()}
               className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-xs hover:bg-blue-700 transition cursor-pointer"
             >
               Add New Category
@@ -1116,10 +1498,10 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 </div>
                 <div>
                   <h3 className="text-base font-extrabold text-slate-900">
-                    {editingCategory ? `Category Details: ${editingCategory.name}` : 'Create New Category'}
+                    {editingCategory ? `Category Details: ${editingCategory.name}` : (formParentId ? 'Create New Sub-category' : 'Create New Category')}
                   </h3>
                   <p className="text-xs text-slate-500">
-                    {editingCategory ? 'Edit name, budget limit, appearance, or remove category' : 'Universal category for debits (expenses) and credits (income)'}
+                    {editingCategory ? 'Edit name, parent hierarchy, budget limit or appearance' : 'Universal category for debits (expenses) and credits (income)'}
                   </p>
                 </div>
               </div>
@@ -1136,7 +1518,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
 
             {/* Performance Overview Banner (when editing an existing category) */}
             {editingCategory && (() => {
-              const activeStats = categoryStatsList.find(s => s.category.id === editingCategory.id);
+              const activeStats = allCategoryStatsMap.get(editingCategory.id);
               if (!activeStats) return null;
               return (
                 <div className="bg-slate-50/90 rounded-2xl p-3.5 border border-slate-200/80 space-y-2.5">
@@ -1203,10 +1585,42 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                   required
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
-                  placeholder="e.g. Groceries, Rent, Salary, Freelance"
+                  placeholder="e.g. Groceries, Restaurants, Rent, Fuel"
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   autoFocus
                 />
+              </div>
+
+              {/* Hierarchy: Parent Category Selector */}
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                  Category Hierarchy
+                </label>
+                <select
+                  value={formParentId}
+                  onChange={(e) => {
+                    const newParentId = e.target.value;
+                    setFormParentId(newParentId);
+                    if (newParentId) {
+                      const parent = categories.find(c => c.id === newParentId);
+                      if (parent) setFormColor(parent.color);
+                    }
+                  }}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Top-Level Category (Main / Parent)</option>
+                  {topLevelCategoryOptions.map(p => (
+                    <option key={p.id} value={p.id}>
+                      Sub-category of: {p.name}
+                    </option>
+                  ))}
+                </select>
+                {formParentId && (
+                  <p className="text-[11px] text-blue-600 font-medium mt-1 flex items-center gap-1">
+                    <CornerDownRight className="w-3.5 h-3.5 text-blue-500" />
+                    <span>Will be displayed indented under <strong>{categories.find(c => c.id === formParentId)?.name}</strong></span>
+                  </p>
+                )}
               </div>
 
               {/* Monthly Spending Budget Limit */}
@@ -1368,7 +1782,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                     className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition active:scale-95 flex items-center gap-1.5 cursor-pointer"
                   >
                     <Check className="w-4 h-4" />
-                    <span>{editingCategory ? 'Save Changes' : 'Create Category'}</span>
+                    <span>{editingCategory ? 'Save Changes' : (formParentId ? 'Create Sub-category' : 'Create Category')}</span>
                   </button>
                 </div>
               </div>
@@ -1394,13 +1808,26 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
               </p>
             </div>
 
+            {/* If has subcategories */}
+            {categories.some(c => c.parentId === deletingCategory.id) && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-900 space-y-1">
+                <span className="font-bold flex items-center gap-1">
+                  <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                  Contains child subcategories:
+                </span>
+                <p className="text-[11px] text-rose-700">
+                  {categories.filter(c => c.parentId === deletingCategory.id).map(c => c.name).join(', ')}
+                </p>
+              </div>
+            )}
+
             {/* If transactions exist, show reassignment selector */}
-            {categoryStatsList.find(s => s.category.id === deletingCategory.id)?.totalTxCount ? (
+            {allCategoryStatsMap.get(deletingCategory.id)?.totalTxCount ? (
               <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl space-y-2">
                 <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
                   <AlertCircle className="w-4 h-4 text-amber-700 flex-shrink-0" />
                   <span>
-                    {categoryStatsList.find(s => s.category.id === deletingCategory.id)?.totalTxCount} existing transactions in this category
+                    {allCategoryStatsMap.get(deletingCategory.id)?.totalTxCount} existing transactions in this category
                   </span>
                 </div>
                 <label className="block text-[11px] font-bold text-amber-900 uppercase">
@@ -1426,14 +1853,14 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
               <button
                 type="button"
                 onClick={() => setDeletingCategory(null)}
-                className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition"
+                className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleConfirmDelete}
-                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-xs transition active:scale-95"
+                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-xs transition active:scale-95 cursor-pointer"
               >
                 Confirm Delete
               </button>
@@ -1455,7 +1882,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 Restore Default Categories?
               </h3>
               <p className="text-xs text-slate-500 mt-1">
-                This will restore the standard set of default categories with their icons and colors.
+                This will restore the standard hierarchical set of default categories and sub-categories.
               </p>
             </div>
 
@@ -1463,7 +1890,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
               <button
                 type="button"
                 onClick={() => setIsResetModalOpen(false)}
-                className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition"
+                className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition cursor-pointer"
               >
                 Cancel
               </button>
@@ -1473,7 +1900,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                   if (onResetCategories) onResetCategories();
                   setIsResetModalOpen(false);
                 }}
-                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition active:scale-95"
+                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition active:scale-95 cursor-pointer"
               >
                 Restore Defaults
               </button>

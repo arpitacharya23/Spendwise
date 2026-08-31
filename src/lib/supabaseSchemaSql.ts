@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS public.categories (
     color TEXT NOT NULL DEFAULT '#3B82F6',
     type TEXT NOT NULL DEFAULT 'expense',
     budget_limit NUMERIC DEFAULT NULL,
+    parent_id TEXT REFERENCES public.categories(id) ON DELETE CASCADE,
     user_email TEXT DEFAULT NULL,
     is_global BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -545,37 +546,65 @@ END $$;
 -- ==============================================================================
 -- 7. SEED DEFAULT UNIVERSAL CATEGORIES & RULES (GLOBAL TEMPLATES)
 -- ==============================================================================
-INSERT INTO public.categories (id, name, icon, color, type, budget_limit, is_global, user_email)
+INSERT INTO public.categories (id, name, icon, color, type, budget_limit, parent_id, is_global, user_email)
 VALUES 
-    ('cat-1', 'Food & Dining', 'Utensils', '#F97316', 'expense', 12000, true, NULL),
-    ('cat-2', 'Shopping & Electronics', 'ShoppingBag', '#8B5CF6', 'expense', 8000, true, NULL),
-    ('cat-3', 'Housing & Rent', 'Home', '#EC4899', 'expense', 20000, true, NULL),
-    ('cat-4', 'Transport & Fuel', 'Car', '#06B6D4', 'expense', 5000, true, NULL),
-    ('cat-5', 'Entertainment & Trips', 'Film', '#EAB308', 'expense', 4000, true, NULL),
-    ('cat-6', 'EMI & Loan Repayment', 'CreditCard', '#EF4444', 'expense', NULL, true, NULL),
-    ('cat-7', 'Utilities & Bills', 'Zap', '#10B981', 'expense', 3500, true, NULL),
-    ('cat-8', 'Salary & Invoicing', 'Briefcase', '#22C55E', 'income', NULL, true, NULL),
-    ('cat-9', 'Investments & Returns', 'TrendingUp', '#6366F1', 'income', NULL, true, NULL),
-    ('cat-10', 'Friend Settlement', 'Users', '#64748B', 'expense', NULL, true, NULL)
+    -- Main Categories
+    ('cat-1', 'Food & Dining', 'Utensils', '#F97316', 'expense', 12000, NULL, true, NULL),
+    ('cat-2', 'Shopping & Electronics', 'ShoppingBag', '#8B5CF6', 'expense', 8000, NULL, true, NULL),
+    ('cat-3', 'Housing & Rent', 'Home', '#EC4899', 'expense', 20000, NULL, true, NULL),
+    ('cat-4', 'Transport & Fuel', 'Car', '#06B6D4', 'expense', 5000, NULL, true, NULL),
+    ('cat-5', 'Entertainment & Trips', 'Film', '#EAB308', 'expense', 4000, NULL, true, NULL),
+    ('cat-6', 'EMI & Loan Repayment', 'CreditCard', '#EF4444', 'expense', NULL, NULL, true, NULL),
+    ('cat-7', 'Utilities & Bills', 'Zap', '#10B981', 'expense', 3500, NULL, true, NULL),
+    ('cat-8', 'Salary & Invoicing', 'Briefcase', '#22C55E', 'income', NULL, NULL, true, NULL),
+    ('cat-9', 'Investments & Returns', 'TrendingUp', '#6366F1', 'income', NULL, NULL, true, NULL),
+    ('cat-10', 'Friend Settlement', 'Users', '#64748B', 'expense', NULL, NULL, true, NULL),
+
+    -- Subcategories for Food & Dining
+    ('cat-1-1', 'Groceries & Provisions', 'ShoppingBag', '#F97316', 'expense', 6000, 'cat-1', true, NULL),
+    ('cat-1-2', 'Restaurants & Dining Out', 'Coffee', '#FB923C', 'expense', 4000, 'cat-1', true, NULL),
+    ('cat-1-3', 'Online Food Delivery', 'Utensils', '#EA580C', 'expense', 2000, 'cat-1', true, NULL),
+
+    -- Subcategories for Shopping
+    ('cat-2-1', 'Clothing & Footwear', 'Shirt', '#8B5CF6', 'expense', NULL, 'cat-2', true, NULL),
+    ('cat-2-2', 'Electronics & Gadgets', 'Smartphone', '#A855F7', 'expense', NULL, 'cat-2', true, NULL),
+
+    -- Subcategories for Housing
+    ('cat-3-1', 'Rent & Lease', 'Home', '#EC4899', 'expense', NULL, 'cat-3', true, NULL),
+    ('cat-3-2', 'Home Maintenance & Repair', 'Wrench', '#F43F5E', 'expense', NULL, 'cat-3', true, NULL),
+
+    -- Subcategories for Transport
+    ('cat-4-1', 'Fuel & Petrol', 'Fuel', '#06B6D4', 'expense', NULL, 'cat-4', true, NULL),
+    ('cat-4-2', 'Cab & Auto (Uber/Ola)', 'Car', '#0891B2', 'expense', NULL, 'cat-4', true, NULL),
+    ('cat-4-3', 'Public Transit & Metro', 'Bus', '#0EA5E9', 'expense', NULL, 'cat-4', true, NULL),
+
+    -- Subcategories for Entertainment
+    ('cat-5-1', 'Movies & Concerts', 'Film', '#EAB308', 'expense', NULL, 'cat-5', true, NULL),
+    ('cat-5-2', 'Subscriptions & OTT', 'Tv', '#F59E0B', 'expense', NULL, 'cat-5', true, NULL),
+
+    -- Subcategories for Utilities
+    ('cat-7-1', 'Electricity & Water', 'Zap', '#10B981', 'expense', NULL, 'cat-7', true, NULL),
+    ('cat-7-2', 'WiFi & Mobile Phone', 'Wifi', '#059669', 'expense', NULL, 'cat-7', true, NULL)
 ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,
     icon = EXCLUDED.icon,
     color = EXCLUDED.color,
     type = EXCLUDED.type,
+    parent_id = EXCLUDED.parent_id,
     is_global = true;
 
 -- Seed default global rules template
 INSERT INTO public.rules (id, name, keyword, match_type, category_id, is_active, is_enabled, is_global, user_email)
 VALUES
-    ('rule-global-1', 'Coffee & Cafes', 'starbucks, cafe, coffee, barista, dunkin, costa, blue tokai, third wave', 'contains', 'cat-1', true, true, true, NULL),
-    ('rule-global-2', 'Rideshare & Taxis', 'uber, ola, lyft, grab, cab, taxi, rapido', 'contains', 'cat-4', true, true, true, NULL),
-    ('rule-global-3', 'Food Delivery & Restaurants', 'swiggy, zomato, doordash, mcdonalds, dominos, pizza, burger, dining, restaurant, subway', 'contains', 'cat-1', true, true, true, NULL),
+    ('rule-global-1', 'Coffee & Cafes', 'starbucks, cafe, coffee, barista, dunkin, costa, blue tokai, third wave', 'contains', 'cat-1-2', true, true, true, NULL),
+    ('rule-global-2', 'Rideshare & Taxis', 'uber, ola, lyft, grab, cab, taxi, rapido', 'contains', 'cat-4-2', true, true, true, NULL),
+    ('rule-global-3', 'Food Delivery & Restaurants', 'swiggy, zomato, doordash, mcdonalds, dominos, pizza, burger, dining, restaurant, subway', 'contains', 'cat-1-3', true, true, true, NULL),
     ('rule-global-4', 'Online Shopping', 'amazon, flipkart, myntra, zara, ebay, ajio, meesho, target, walmart', 'contains', 'cat-2', true, true, true, NULL),
-    ('rule-global-5', 'Entertainment & Streaming', 'netflix, spotify, prime video, hotstar, youtube, cinema, pvr, inox, movies, steam, playstation', 'contains', 'cat-5', true, true, true, NULL),
-    ('rule-global-6', 'Groceries & Daily Essentials', 'grocery, blinkit, zepto, instamart, supermarket, bigbasket, nature basket, costco, traders joe', 'contains', 'cat-1', true, true, true, NULL),
-    ('rule-global-7', 'Fuel & Gas Stations', 'shell, petrol, diesel, fuel, chevron, bp, exxon, gas station, indian oil, hpcl, bharat petroleum', 'contains', 'cat-4', true, true, true, NULL),
+    ('rule-global-5', 'Entertainment & Streaming', 'netflix, spotify, prime video, hotstar, youtube, cinema, pvr, inox, movies, steam, playstation', 'contains', 'cat-5-2', true, true, true, NULL),
+    ('rule-global-6', 'Groceries & Daily Essentials', 'grocery, blinkit, zepto, instamart, supermarket, bigbasket, nature basket, costco, traders joe', 'contains', 'cat-1-1', true, true, true, NULL),
+    ('rule-global-7', 'Fuel & Gas Stations', 'shell, petrol, diesel, fuel, chevron, bp, exxon, gas station, indian oil, hpcl, bharat petroleum', 'contains', 'cat-4-1', true, true, true, NULL),
     ('rule-global-8', 'Salary & Earnings', 'salary, payroll, stipend, client payment, consulting fee, freelance payout, dividend', 'contains', 'cat-8', true, true, true, NULL),
-    ('rule-global-9', 'Housing & Rent', 'rent, maintenance, landlord, apartment, society dues', 'contains', 'cat-3', true, true, true, NULL)
+    ('rule-global-9', 'Housing & Rent', 'rent, maintenance, landlord, apartment, society dues', 'contains', 'cat-3-1', true, true, true, NULL)
 ON CONFLICT (id) DO NOTHING;
 `;
 
@@ -583,9 +612,10 @@ export const SUPABASE_USER_SCOPING_MIGRATION_SQL = `-- =========================
 -- SPENDWISE - DELTA SQL MIGRATION: SCOPE CATEGORIES, RULES & BUDGETS PER USER
 -- ==============================================================================
 -- Run this in your Supabase SQL Editor if you already have existing tables.
--- It safely adds user_email and is_global columns and indexes without data loss.
+-- It safely adds parent_id, user_email and is_global columns and indexes.
 
--- 1. Add user_email and is_global to Categories table
+-- 1. Add parent_id, user_email and is_global to Categories table
+ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS parent_id TEXT REFERENCES public.categories(id) ON DELETE CASCADE;
 ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS user_email TEXT DEFAULT NULL;
 ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS is_global BOOLEAN NOT NULL DEFAULT FALSE;
 
@@ -602,9 +632,10 @@ ALTER TABLE public.budgets ADD COLUMN IF NOT EXISTS limit_amount NUMERIC NOT NUL
 
 -- 4. Create performance indexes for fast user-filtered queries
 CREATE INDEX IF NOT EXISTS idx_categories_user ON public.categories (user_email);
+CREATE INDEX IF NOT EXISTS idx_categories_parent ON public.categories (parent_id);
 CREATE INDEX IF NOT EXISTS idx_rules_user ON public.rules (user_email);
 CREATE INDEX IF NOT EXISTS idx_budgets_user_period ON public.budgets (user_email, year, month);
 
--- 5. Mark initial seeded 10 categories as global templates
+-- 5. Mark initial seeded categories as global templates
 UPDATE public.categories SET is_global = TRUE WHERE user_email IS NULL;
 `;
