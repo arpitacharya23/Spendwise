@@ -1567,14 +1567,14 @@ export default function App() {
                     </div>
                   )}
                   {/* Status indicator dot - only visible when a Google Sheet is connected */}
-                  {gsheetSyncState !== 'disconnected' && (
+                  {/*gsheetSyncState !== 'disconnected' && (
                     <span
                       className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-1 ring-white shadow-xs ${
                         gsheetSyncState === 'synced' ? 'bg-emerald-500' : 'bg-amber-400'
                       }`}
                       title={gsheetSyncState === 'synced' ? "Google Sheets: Synced" : "Google Sheets: Sync pending"}
                     />
-                  )}
+                  )*/}
                 </div>
                 <span className="text-xs font-bold text-slate-800 hidden sm:inline-block max-w-[130px] truncate">
                   {user.name || 'User'}
@@ -1616,13 +1616,13 @@ export default function App() {
                             {(user.name || user.email || 'U').split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U'}
                           </div>
                         )}
-                        {gsheetSyncState !== 'disconnected' && (
+                        {/*gsheetSyncState !== 'disconnected' && (
                           <span
                             className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-1.5 ring-white shadow-xs ${
                               gsheetSyncState === 'synced' ? 'bg-emerald-500' : 'bg-amber-400'
                             }`}
                           />
-                        )}
+                        )*/}
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-bold text-slate-900 truncate">{user.name}</p>
