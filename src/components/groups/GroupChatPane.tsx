@@ -184,34 +184,12 @@ export const GroupChatPane: React.FC<GroupChatPaneProps> = ({
         {/* Header Right Actions */}
         <div className="flex items-center gap-2 flex-shrink-0">
           {/* Total Spend Badge */}
-          <div className="hidden lg:flex flex-col items-end px-3 py-1 bg-slate-100 border border-slate-200 rounded-xl text-right">
+          <div className="flex flex-col items-end px-3 py-1 bg-slate-100 border border-slate-200 rounded-xl text-right">
             <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">Total Spend</span>
             <span className="text-xs font-black text-emerald-700 privacy-value">
               {activeGroup.currency}{totalGroupSpend.toLocaleString('en-IN')}
             </span>
           </div>
-
-          {/* Settle Debt Quick Action */}
-          <button
-            onClick={onOpenSettleModal}
-            id="btn-group-chat-settle"
-            className="hidden sm:flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/80 rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer shadow-2xs"
-            title="Record a payment or settlement"
-          >
-            <Check className="w-3.5 h-3.5 stroke-[2.5]" />
-            <span>Settle</span>
-          </button>
-
-          {/* Add Expense Primary Button */}
-          <button
-            onClick={onOpenAddExpenseModal}
-            id="btn-group-chat-add-expense"
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-2xs active:scale-95 cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Add Expense</span>
-            <span className="sm:hidden">Expense</span>
-          </button>
         </div>
       </div>
 

@@ -828,28 +828,6 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
 
         {/* Right Side: Action Buttons */}
         <div className="flex items-center gap-2 flex-wrap">
-          {activeGroup && (
-            <button
-              onClick={() => handleOpenSettleModal()}
-              id="btn-top-record-settlement"
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer shadow-2xs"
-            >
-              <Check className="w-3.5 h-3.5 stroke-[2.5]" />
-              <span>Record Settlement</span>
-            </button>
-          )}
-
-          {activeGroup && (
-            <button
-              onClick={handleOpenAddExpense}
-              id="btn-top-add-group-expense"
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-2xs active:scale-95 cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add Group Expense</span>
-            </button>
-          )}
-
           <button
             onClick={() => setIsCreateGroupModalOpen(true)}
             id="btn-top-create-group"
