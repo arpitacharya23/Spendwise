@@ -58,6 +58,7 @@ function isPhoneQuery(q: string): boolean {
 
 // Helper to format clean display name from email
 function inferNameFromEmail(email: string): string {
+  if (!email || typeof email !== 'string') return 'Friend';
   const username = email.split('@')[0] || '';
   if (!username) return 'Friend';
   
@@ -127,13 +128,13 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
   
   const filteredFriends = friends.filter(f => {
     if (isSearchAnEmail) {
-      return f.email.toLowerCase() === trimmedSearch.toLowerCase();
+      return (f.email || '').trim().toLowerCase() === trimmedSearch.toLowerCase();
     }
     if (isSearchAPhone) {
       return isPhoneMatch(f.phone, trimmedSearch);
     }
     // Search by friend name
-    return f.name.toLowerCase().includes(trimmedSearch.toLowerCase());
+    return (f.name || '').toLowerCase().includes(trimmedSearch.toLowerCase());
   });
 
   // Perform search lookup by email or mobile number - ONLY returns registered users
@@ -175,7 +176,7 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
 
     // 2. Check if already a friend in current local list
     const existing = friends.find(f => {
-      if (isEmail && f.email.toLowerCase() === norm.toLowerCase()) return true;
+      if (isEmail && f.email && f.email.toLowerCase() === norm.toLowerCase()) return true;
       if (isPhone && isPhoneMatch(f.phone, norm)) return true;
       return false;
     });
@@ -262,7 +263,7 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
 
     // Check if friend with email or phone already exists
     const existing = friends.find(f => 
-      (targetEmail && f.email.toLowerCase() === targetEmail.toLowerCase()) ||
+      (Boolean(targetEmail && f.email) && f.email.toLowerCase() === targetEmail.toLowerCase()) ||
       (searchResult.phone && isPhoneMatch(f.phone, searchResult.phone))
     );
 
@@ -404,7 +405,7 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
 
             {/* If user searched an email or phone and it's NOT in the list yet, show a search user directory card */}
             {isSearchIdentifier && !friends.some(f => 
-              (isSearchAnEmail && f.email.toLowerCase() === trimmedSearch.toLowerCase()) ||
+              (Boolean(isSearchAnEmail && f.email) && f.email.toLowerCase() === trimmedSearch.toLowerCase()) ||
               (isSearchAPhone && isPhoneMatch(f.phone, trimmedSearch))
             ) && (
               <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-2.5 text-xs animate-fadeIn">

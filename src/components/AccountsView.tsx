@@ -200,7 +200,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
     const newPerm: AccountPermission = {
       email: shareEmail,
-      name: shareName || shareEmail.split('@')[0],
+      name: shareName || (shareEmail ? shareEmail.split('@')[0] : 'Member'),
       role: shareRole,
       addedAt: new Date().toISOString().split('T')[0],
     };

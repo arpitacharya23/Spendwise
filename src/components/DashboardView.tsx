@@ -139,8 +139,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         return (b.id || '').localeCompare(a.id || '');
       })
       .filter(tx => {
-        const matchesSearch = tx.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                              (tx.notes && tx.notes.toLowerCase().includes(searchTerm.toLowerCase()));
+        const q = (searchTerm || '').toLowerCase();
+        const matchesSearch = !q || (
+          (tx.title || '').toLowerCase().includes(q) || 
+          (tx.notes ? tx.notes.toLowerCase().includes(q) : false)
+        );
         if (!matchesSearch) return false;
         if (filterType === 'all') return true;
         return tx.type === filterType;

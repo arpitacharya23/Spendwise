@@ -213,9 +213,12 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
 
     recentGroupTxs.forEach(tx => {
       const group = groups.find(g => g.id === tx.groupId);
+      const userEmailNorm = (user?.email || '').trim().toLowerCase();
+      const payerEmail = (group?.members.find(m => m.id === tx.paidByMemberId)?.email || '').trim().toLowerCase();
+      const creatorEmail = (tx.createdBy || '').trim().toLowerCase();
       const isPaidByMe = tx.paidByMemberId 
-        ? group?.members.find(m => m.id === tx.paidByMemberId)?.email?.toLowerCase() === user.email.toLowerCase()
-        : tx.createdBy?.toLowerCase() === user.email.toLowerCase();
+        ? Boolean(payerEmail && userEmailNorm && payerEmail === userEmailNorm)
+        : Boolean(creatorEmail && userEmailNorm && creatorEmail === userEmailNorm);
 
       list.push({
         id: `notif-group-tx-${tx.id}`,

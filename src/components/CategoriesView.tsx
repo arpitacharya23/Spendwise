@@ -144,7 +144,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
 
     if (timeframeMode === 'yearly') {
       return transactions.filter(tx => {
-        if (!tx.date) return false;
+        if (!tx.date || typeof tx.date !== 'string') return false;
         const parts = tx.date.split('-');
         if (parts.length >= 1) {
           const y = parseInt(parts[0], 10);
@@ -156,7 +156,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
     }
 
     return transactions.filter(tx => {
-      if (!tx.date) return false;
+      if (!tx.date || typeof tx.date !== 'string') return false;
       const parts = tx.date.split('-');
       if (parts.length >= 2) {
         const y = parseInt(parts[0], 10);
@@ -241,13 +241,13 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
 
       // 6-Month Historical Spending Trend for mini sparkline
       const spendingTrend6M: MonthlySpendPoint[] = last6Months.map(m => {
-        const [mYear, mMon] = m.monthKey.split('-').map(Number);
+        const [mYear, mMon] = (m.monthKey || '').split('-').map(Number);
         const mDebit = transactions
           .filter(tx => {
             if (tx.categoryId !== cat.id) return false;
             const isDebit = tx.type === 'expense' || tx.type === 'emi_payment' || (tx.type === 'settlement' && tx.notes?.includes('Paid to'));
             if (!isDebit) return false;
-            if (!tx.date) return false;
+            if (!tx.date || typeof tx.date !== 'string') return false;
             const parts = tx.date.split('-');
             if (parts.length >= 2) {
               const y = parseInt(parts[0], 10);
@@ -335,9 +335,9 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
       if (activityFilter === 'unbudgeted' && !item.isUnbudgeted) return false;
 
       // Search Query
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        return item.category.name.toLowerCase().includes(q);
+      const q = (searchQuery || '').trim().toLowerCase();
+      if (q) {
+        return (item.category?.name || '').toLowerCase().includes(q);
       }
 
       return true;
@@ -459,10 +459,11 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
 
   // Filtered icon list for modal
   const filteredIcons = useMemo(() => {
-    if (!iconSearch.trim()) return AVAILABLE_CATEGORY_ICONS;
+    const q = (iconSearch || '').trim().toLowerCase();
+    if (!q) return AVAILABLE_CATEGORY_ICONS;
     return AVAILABLE_CATEGORY_ICONS.filter(i => 
-      i.name.toLowerCase().includes(iconSearch.toLowerCase()) || 
-      i.label.toLowerCase().includes(iconSearch.toLowerCase())
+      (i.name || '').toLowerCase().includes(q) || 
+      (i.label || '').toLowerCase().includes(q)
     );
   }, [iconSearch]);
 

@@ -324,7 +324,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
 
   // Format display time helper (e.g. "14:30" -> "02:30 PM", or extracting from date/updatedAt)
   const formatTxTime = (tx: Transaction) => {
-    if (tx.time && tx.time.includes(':')) {
+    if (tx.time && typeof tx.time === 'string' && tx.time.includes(':')) {
       const parts = tx.time.split(':');
       const h = parseInt(parts[0], 10);
       const m = parseInt(parts[1], 10) || 0;
@@ -335,7 +335,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
       }
       return tx.time;
     }
-    if (tx.date && tx.date.includes('T')) {
+    if (tx.date && typeof tx.date === 'string' && tx.date.includes('T')) {
       const timePart = tx.date.split('T')[1]?.substring(0, 5) || '';
       if (timePart && timePart.includes(':')) {
         const [hStr, mStr] = timePart.split(':');
@@ -348,7 +348,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
         }
       }
     }
-    if (tx.updatedAt && tx.updatedAt.includes('T')) {
+    if (tx.updatedAt && typeof tx.updatedAt === 'string' && tx.updatedAt.includes('T')) {
       try {
         const dateObj = new Date(tx.updatedAt);
         if (!isNaN(dateObj.getTime())) {
@@ -372,9 +372,10 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
     setEditingTx(tx);
     setEditTitle(tx.title);
     setEditAmount(String(tx.amount));
-    setEditDate(tx.date.split('T')[0]);
+    const txDateStr = tx.date || new Date().toISOString().split('T')[0];
+    setEditDate(txDateStr.includes('T') ? txDateStr.split('T')[0] : txDateStr);
     let initialTime = tx.time || '';
-    if (!initialTime && tx.date.includes('T')) {
+    if (!initialTime && tx.date && typeof tx.date === 'string' && tx.date.includes('T')) {
       initialTime = tx.date.split('T')[1]?.substring(0, 5) || '';
     }
     setEditTime(initialTime);
@@ -523,11 +524,11 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
         const cat = categories.find(c => c.id === tx.categoryId);
         const grp = groups.find(g => g.id === tx.groupId);
 
-        const matchTitle = tx.title.toLowerCase().includes(query);
+        const matchTitle = (tx.title || '').toLowerCase().includes(query);
         const matchNotes = tx.notes ? tx.notes.toLowerCase().includes(query) : false;
-        const matchAcc = acc ? acc.name.toLowerCase().includes(query) || (acc.bankName && acc.bankName.toLowerCase().includes(query)) : false;
-        const matchCat = cat ? cat.name.toLowerCase().includes(query) : false;
-        const matchGrp = grp ? grp.name.toLowerCase().includes(query) : false;
+        const matchAcc = acc ? (acc.name || '').toLowerCase().includes(query) || (acc.bankName && acc.bankName.toLowerCase().includes(query)) : false;
+        const matchCat = cat ? (cat.name || '').toLowerCase().includes(query) : false;
+        const matchGrp = grp ? (grp.name || '').toLowerCase().includes(query) : false;
         const matchPayer = tx.paidByMemberId ? true : false;
 
         if (!matchTitle && !matchNotes && !matchAcc && !matchCat && !matchGrp && !matchPayer) {

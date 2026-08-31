@@ -91,7 +91,7 @@ export const BudgetsView: React.FC<BudgetsViewProps> = ({
   // Filter transactions for the selected month
   const monthTransactions = useMemo(() => {
     return transactions.filter(tx => {
-      if (!tx.date) return false;
+      if (!tx.date || typeof tx.date !== 'string') return false;
       const parts = tx.date.split('-');
       if (parts.length >= 2) {
         const y = parseInt(parts[0], 10);
@@ -166,9 +166,10 @@ export const BudgetsView: React.FC<BudgetsViewProps> = ({
 
   // Filtered categories
   const filteredCategoryStats = useMemo(() => {
+    const q = (searchCategory || '').trim().toLowerCase();
     return categoryStats.filter(s => {
-      if (searchCategory.trim()) {
-        if (!s.category.name.toLowerCase().includes(searchCategory.toLowerCase())) {
+      if (q) {
+        if (!s.category?.name || !s.category.name.toLowerCase().includes(q)) {
           return false;
         }
       }

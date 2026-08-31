@@ -63,8 +63,8 @@ const formatDateToISO = (date: Date): string => {
 
 // Helper to format readable display date
 const formatReadableDate = (isoStr: string): string => {
-  if (!isoStr) return '';
-  const [y, m, d] = isoStr.split('-').map(Number);
+  if (!isoStr || typeof isoStr !== 'string') return '';
+  const [y, m, d] = (isoStr || '').split('-').map(Number);
   if (!y || !m || !d) return isoStr;
   const date = new Date(y, m - 1, d);
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -222,9 +222,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
   // 2. Filtered Transactions for Ledger Table (from timeline-filtered transactions)
   const filteredLedger = useMemo(() => {
+    const q = (txSearchTerm || '').toLowerCase();
     return timelineTransactions.filter(t => {
-      const matchesSearch = t.title.toLowerCase().includes(txSearchTerm.toLowerCase()) ||
-                            (t.notes && t.notes.toLowerCase().includes(txSearchTerm.toLowerCase()));
+      const matchesSearch = !q || (
+        (t.title || '').toLowerCase().includes(q) ||
+        (t.notes ? t.notes.toLowerCase().includes(q) : false)
+      );
       if (!matchesSearch) return false;
 
       if (txCategoryFilter !== 'all' && t.categoryId !== txCategoryFilter) return false;

@@ -1,35 +1,38 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Users2, 
   Plus, 
-  Receipt, 
-  MessageSquare, 
-  History, 
-  UserPlus, 
-  UserMinus, 
-  DollarSign, 
-  Check, 
   X, 
-  ChevronRight, 
-  AlertCircle, 
-  ArrowRight, 
-  ArrowUp,
-  ArrowDown,
+  Check, 
+  Search, 
+  UserPlus, 
+  UserCheck, 
+  CheckCircle2, 
+  AlertCircle,
+  TrendingUp,
+  TrendingDown,
+  Receipt,
+  HandCoins,
   Sparkles,
-  Calendar,
-  Layers,
-  Edit2,
-  Trash2,
-  CheckCircle2,
-  Search,
-  UserCheck,
-  Percent,
-  CheckSquare,
-  Square,
-  Divide
+  ArrowRightLeft,
+  Wallet,
+  ShieldCheck,
+  ChevronRight
 } from 'lucide-react';
-import { Account, Friend, Group, GroupActivityLog, GroupMember, SplitMemberShare, Transaction, UserProfile } from '../types';
+import { 
+  Account, 
+  Friend, 
+  Group, 
+  GroupActivityLog, 
+  GroupMember, 
+  SplitMemberShare, 
+  Transaction, 
+  UserProfile 
+} from '../types';
 import { SplitEditor, SplitMode } from './SplitEditor';
+import { GroupListPane } from './groups/GroupListPane';
+import { GroupChatPane } from './groups/GroupChatPane';
+import { GroupDetailsPane } from './groups/GroupDetailsPane';
 
 interface GroupsViewProps {
   user: UserProfile;
@@ -105,11 +108,12 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
   onSettleGroupDebt,
   onAddFriend,
 }) => {
-  const activeGroup = groups.find(g => g.id === selectedGroupId) || groups[0];
+  // Current active group
+  const activeGroup = groups.find(g => g.id === selectedGroupId) || groups[0] || null;
 
-  // Sub-tabs in active group
-  const [groupTab, setGroupTab] = useState<'expenses_activity' | 'members'>('expenses_activity');
-  const activityContainerRef = useRef<HTMLDivElement>(null);
+  // Responsive / View state
+  const [mobileView, setMobileView] = useState<'list' | 'chat'>('list');
+  const [isRightPaneOpen, setIsRightPaneOpen] = useState<boolean>(true);
 
   // Modals state
   const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] = useState(false);
@@ -118,7 +122,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
   const [isSettleModalOpen, setIsSettleModalOpen] = useState(false);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
 
-  // New Group Form
+  // New Group Form State
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupDesc, setNewGroupDesc] = useState('');
   const [newGroupCat, setNewGroupCat] = useState<'Trip' | 'Home' | 'Project' | 'Friends' | 'Other'>('Trip');
@@ -126,19 +130,18 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
   const [selectedInitialFriendIds, setSelectedInitialFriendIds] = useState<string[]>([]);
   const [friendSearchCreate, setFriendSearchCreate] = useState('');
 
-  // Add Expense Form
+  // Add Expense Form State
   const [expTitle, setExpTitle] = useState('');
   const [expAmount, setExpAmount] = useState('');
   const [expPaidBy, setExpPaidBy] = useState('mem-1');
   const [expAccountId, setExpAccountId] = useState('');
   const [expNotes, setExpNotes] = useState('');
-  // Member split state
   const [splitMode, setSplitMode] = useState<SplitMode>('equal');
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [exactShares, setExactShares] = useState<Record<string, number>>({});
   const [percentageShares, setPercentageShares] = useState<Record<string, number>>({});
 
-  // Add Member Form
+  // Add Member Form State
   const [addMemberTab, setAddMemberTab] = useState<'global_friends' | 'manual'>('global_friends');
   const [selectedFriendIdsToAdd, setSelectedFriendIdsToAdd] = useState<string[]>([]);
   const [friendSearchAdd, setFriendSearchAdd] = useState('');
@@ -146,7 +149,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
   const [newMemName, setNewMemName] = useState('');
   const [newMemEmail, setNewMemEmail] = useState('');
 
-  // Settle Debt Form
+  // Settle Debt Form State
   const [settleFrom, setSettleFrom] = useState('');
   const [settleTo, setSettleTo] = useState('');
   const [settleAmount, setSettleAmount] = useState('');
@@ -156,7 +159,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
   const [editExpTitle, setEditExpTitle] = useState('');
   const [editExpAmount, setEditExpAmount] = useState('');
   const [editExpDate, setEditExpDate] = useState('');
-  const [editExpPaidBy, setEditExpPaidBy] = useState('mem-1');
+  const [editExpPaidBy, setEditExpPaidBy] = useState('');
   const [editExpAccountId, setEditExpAccountId] = useState('');
   const [editExpNotes, setEditExpNotes] = useState('');
   const [editSplitMode, setEditSplitMode] = useState<SplitMode>('equal');
@@ -164,116 +167,46 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
   const [editExactShares, setEditExactShares] = useState<Record<string, number>>({});
   const [editPercentageShares, setEditPercentageShares] = useState<Record<string, number>>({});
 
-  // Global friends not yet in active group
+  // Filter transactions for the active group
+  const groupTransactions = useMemo(() => {
+    if (!activeGroup) return [];
+    return transactions.filter(t => t.groupId === activeGroup.id);
+  }, [transactions, activeGroup]);
+
+  // Total Group Spend
+  const totalGroupSpend = useMemo(() => {
+    return groupTransactions.reduce((sum, t) => sum + t.amount, 0);
+  }, [groupTransactions]);
+
+  // Unadded Global Friends (Friends who are NOT in the active group yet)
   const unaddedFriends = useMemo(() => {
     if (!activeGroup || !friends) return [];
-    const groupEmails = new Set(activeGroup.members.map(m => (m.email || '').toLowerCase().trim()));
-    const groupNames = new Set(activeGroup.members.map(m => m.name.toLowerCase().trim()));
-    return friends.filter(f => !groupEmails.has(f.email.toLowerCase().trim()) && !groupNames.has(f.name.toLowerCase().trim()));
+    const groupMemberEmails = new Set(
+      activeGroup.members
+        .filter(m => Boolean(m?.email))
+        .map(m => (m.email || '').trim().toLowerCase())
+    );
+    const groupMemberNames = new Set(
+      activeGroup.members
+        .filter(m => Boolean(m?.name))
+        .map(m => (m.name || '').trim().toLowerCase())
+    );
+    return friends.filter(f => {
+      const emailMatch = Boolean(f.email) && groupMemberEmails.has((f.email || '').trim().toLowerCase());
+      const nameMatch = Boolean(f.name) && groupMemberNames.has((f.name || '').trim().toLowerCase());
+      return !emailMatch && !nameMatch;
+    });
   }, [activeGroup, friends]);
 
-  // When opening add expense, initialize all members as selected
-  const openAddExpenseModal = () => {
-    if (activeGroup) {
-      const allIds = activeGroup.members.map(m => m.id);
-      setSelectedMemberIds(allIds);
-      setExpPaidBy(activeGroup.members[0]?.id || 'mem-1');
-      setExpAccountId(accounts[0]?.id || 'acc-1');
-      setExpTitle('');
-      setExpAmount('');
-      setExpNotes('');
-      setSplitMode('equal');
-      setExactShares({});
-      setPercentageShares({});
-    }
-    setIsAddExpenseModalOpen(true);
-  };
-
-  const openEditExpenseModal = (tx: Transaction) => {
-    setEditingTx(tx);
-    setEditExpTitle(tx.title);
-    setEditExpAmount(String(tx.amount));
-    setEditExpDate(tx.date || new Date().toISOString().split('T')[0]);
-    setEditExpPaidBy(tx.paidByMemberId || activeGroup?.members[0]?.id || 'mem-1');
-    setEditExpAccountId(tx.accountId || accounts[0]?.id || 'acc-1');
-    setEditExpNotes(tx.notes || '');
-
-    if (tx.splitDetails && tx.splitDetails.length > 0) {
-      const selected = tx.splitDetails.filter(s => s.isSelected).map(s => s.memberId);
-      const chosenSelected = selected.length > 0 ? selected : (activeGroup?.members.map(m => m.id) || []);
-      setEditSelectedMemberIds(chosenSelected);
-
-      const exactMap: Record<string, number> = {};
-      const percentMap: Record<string, number> = {};
-      let isExact = false;
-      const count = chosenSelected.length || 1;
-      const equalShare = Math.round((tx.amount / count) * 100) / 100;
-
-      tx.splitDetails.forEach(s => { 
-        exactMap[s.memberId] = s.shareAmount; 
-        percentMap[s.memberId] = Math.round(((s.shareAmount / (tx.amount || 1)) * 100) * 10) / 10;
-        if (s.isSelected && Math.abs(s.shareAmount - equalShare) > 1) {
-          isExact = true;
-        }
-      });
-
-      setEditExactShares(exactMap);
-      setEditPercentageShares(percentMap);
-      setEditSplitMode(isExact ? 'exact' : 'equal');
-    } else if (activeGroup) {
-      setEditSelectedMemberIds(activeGroup.members.map(m => m.id));
-      setEditExactShares({});
-      setEditPercentageShares({});
-      setEditSplitMode('equal');
-    }
-  };
-
-  // Toggle member selection in split (allows deselecting persons)
-  const toggleMemberSelection = (memberId: string) => {
-    if (selectedMemberIds.includes(memberId)) {
-      if (selectedMemberIds.length === 1) return; // Must have at least 1 person selected
-      setSelectedMemberIds(selectedMemberIds.filter(id => id !== memberId));
-    } else {
-      setSelectedMemberIds([...selectedMemberIds, memberId]);
-    }
-  };
-
-  const toggleEditMemberSelection = (memberId: string) => {
-    if (editSelectedMemberIds.includes(memberId)) {
-      if (editSelectedMemberIds.length === 1) return; // Must have at least 1 person selected
-      setEditSelectedMemberIds(editSelectedMemberIds.filter(id => id !== memberId));
-    } else {
-      setEditSelectedMemberIds([...editSelectedMemberIds, memberId]);
-    }
-  };
-
-  // Group-specific transactions and logs (latest on top)
-  const groupTransactions = transactions
-    .filter(t => t.groupId === activeGroup?.id)
-    .sort((a, b) => {
-      const timeA = new Date(a.updatedAt || a.date).getTime() || new Date(a.date).getTime() || 0;
-      const timeB = new Date(b.updatedAt || b.date).getTime() || new Date(b.date).getTime() || 0;
-      if (timeB !== timeA) return timeB - timeA;
-      return (b.id || '').localeCompare(a.id || '');
-    });
-  const groupLogs = activityLogs
-    .filter(l => l.groupId === activeGroup?.id)
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-
-  // Total group spending
-  const totalGroupSpend = groupTransactions.reduce((sum, t) => sum + t.amount, 0);
-
-  // Unified Chat / Event Flow Feed (Latest on Top)
-  const flowItems = useMemo<FlowItem[]>(() => {
+  // Generate WhatsApp Style Timeline Flow Items (merged logs + transactions)
+  const flowItems = useMemo(() => {
     if (!activeGroup) return [];
 
+    const groupLogs = activityLogs.filter(l => l.groupId === activeGroup.id);
     const items: FlowItem[] = [];
     const processedTxIds = new Set<string>();
 
-    // 1. Process activity logs for this group
-    const logs = activityLogs.filter(l => l.groupId === activeGroup.id);
-
-    logs.forEach(log => {
+    groupLogs.forEach(log => {
       const member = activeGroup.members.find(m => m.name === log.actorName || m.email === log.actorEmail);
       const avatarColor = member?.avatarColor || '#3B82F6';
 
@@ -367,11 +300,11 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
       }
     });
 
-    // 2. Add any group transactions that weren't matched in the logs
+    // Add any group transactions not present in the activity logs
     groupTransactions.forEach(tx => {
       if (!processedTxIds.has(tx.id)) {
         const payer = activeGroup.members.find(m => m.id === tx.paidByMemberId) || activeGroup.members[0];
-        const isSettlement = tx.type === 'settlement' || tx.categoryId === 'cat-10' || tx.title.toLowerCase().includes('settlement');
+        const isSettlement = tx.type === 'settlement' || tx.categoryId === 'cat-10' || (tx.title || '').toLowerCase().includes('settlement');
         
         items.push({
           id: `flow-tx-${tx.id}`,
@@ -393,16 +326,16 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
       }
     });
 
-    // 3. Sort chronologically (latest to oldest, so latest is on top)
+    // Sort chronologically (oldest at top, latest at bottom like messenger chat apps)
     return items.sort((a, b) => {
       const timeA = new Date(a.timestamp).getTime() || 0;
       const timeB = new Date(b.timestamp).getTime() || 0;
-      if (timeB !== timeA) return timeB - timeA;
-      return (b.id || '').localeCompare(a.id || '');
+      if (timeA !== timeB) return timeA - timeB;
+      return (a.id || '').localeCompare(b.id || '');
     });
   }, [activeGroup, activityLogs, groupTransactions, user.currency, user.name]);
 
-  // Group flow items by date
+  // Group flow items by date for WhatsApp separators
   const groupedFlow = useMemo(() => {
     const groupsMap: { dateLabel: string; items: FlowItem[] }[] = [];
     let currentDateLabel = '';
@@ -429,54 +362,227 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
   }, [flowItems]);
 
   // Group Balance Matrix Calculation (Who paid what vs who consumed what)
-  const memberBalances: Record<string, { paid: number; share: number; net: number; member: GroupMember }> = {};
-  if (activeGroup) {
+  const memberBalances = useMemo(() => {
+    const balances: Record<string, { paid: number; share: number; net: number; member: GroupMember }> = {};
+    if (!activeGroup) return balances;
+
     activeGroup.members.forEach(m => {
-      memberBalances[m.id] = { paid: 0, share: 0, net: 0, member: m };
+      balances[m.id] = { paid: 0, share: 0, net: 0, member: m };
     });
 
     groupTransactions.forEach(tx => {
       if (tx.splitDetails && tx.splitDetails.length > 0) {
         tx.splitDetails.forEach(split => {
-          if (memberBalances[split.memberId]) {
-            memberBalances[split.memberId].paid += (split.paidAmount || 0);
-            memberBalances[split.memberId].share += (split.shareAmount || 0);
+          if (balances[split.memberId]) {
+            balances[split.memberId].paid += (split.paidAmount || 0);
+            balances[split.memberId].share += (split.shareAmount || 0);
           }
         });
       } else {
-        // Equal fallback
         const payerId = tx.paidByMemberId || activeGroup.members[0].id;
-        if (memberBalances[payerId]) {
-          memberBalances[payerId].paid += tx.amount;
+        if (balances[payerId]) {
+          balances[payerId].paid += tx.amount;
         }
-        const perPerson = tx.amount / activeGroup.members.length;
+        const perPerson = activeGroup.members.length > 0 ? (tx.amount / activeGroup.members.length) : 0;
         activeGroup.members.forEach(m => {
-          if (memberBalances[m.id]) memberBalances[m.id].share += perPerson;
+          if (balances[m.id]) {
+            balances[m.id].share += perPerson;
+          }
         });
       }
     });
 
-    // Compute net balance: Net = Paid - Share (positive means others owe you, negative means you owe others)
-    Object.keys(memberBalances).forEach(id => {
-      memberBalances[id].net = memberBalances[id].paid - memberBalances[id].share;
+    Object.keys(balances).forEach(id => {
+      balances[id].net = balances[id].paid - balances[id].share;
     });
-  }
 
-  // Simplified Debts algorithm
-  const debtors: { id: string; name: string; amount: number }[] = [];
-  const creditors: { id: string; name: string; amount: number }[] = [];
+    return balances;
+  }, [activeGroup, groupTransactions]);
 
-  if (activeGroup) {
-    Object.values(memberBalances).forEach(b => {
+  // Simplified Debts algorithm (Greedy matching)
+  const simplifiedDebts = useMemo(() => {
+    if (!activeGroup) return [];
+    const debts: { from: GroupMember; to: GroupMember; amount: number }[] = [];
+    
+    const dList: { member: GroupMember; amount: number }[] = [];
+    const cList: { member: GroupMember; amount: number }[] = [];
+
+    const balanceValues = Object.values(memberBalances) as { paid: number; share: number; net: number; member: GroupMember }[];
+    balanceValues.forEach(b => {
       if (b.net < -0.01) {
-        debtors.push({ id: b.member.id, name: b.member.name, amount: Math.abs(b.net) });
+        dList.push({ member: b.member, amount: Math.abs(b.net) });
       } else if (b.net > 0.01) {
-        creditors.push({ id: b.member.id, name: b.member.name, amount: b.net });
+        cList.push({ member: b.member, amount: b.net });
       }
     });
-  }
 
-  // Compute equal split dynamically for the modal
+    let i = 0;
+    let j = 0;
+
+    while (i < dList.length && j < cList.length) {
+      const debtor = dList[i];
+      const creditor = cList[j];
+      const settleAmt = Math.min(debtor.amount, creditor.amount);
+
+      if (settleAmt > 0.01) {
+        debts.push({
+          from: debtor.member,
+          to: creditor.member,
+          amount: Math.round(settleAmt),
+        });
+      }
+
+      debtor.amount -= settleAmt;
+      creditor.amount -= settleAmt;
+
+      if (debtor.amount < 0.01) i++;
+      if (creditor.amount < 0.01) j++;
+    }
+
+    return debts;
+  }, [activeGroup, memberBalances]);
+
+  // Overall group metrics across all groups
+  const overallGroupStats = useMemo(() => {
+    let totalSpendAll = 0;
+    let totalYouAreOwed = 0;
+    let totalYouOwe = 0;
+    const uniqueMemberKeys = new Set<string>();
+
+    groups.forEach(g => {
+      const gTxs = transactions.filter(t => t.groupId === g.id);
+      const gSpend = gTxs.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+      totalSpendAll += gSpend;
+
+      g.members.forEach(m => {
+        if (m.email) uniqueMemberKeys.add(m.email.toLowerCase());
+        else if (m.name) uniqueMemberKeys.add(m.name.toLowerCase());
+      });
+
+      // Calculate user balance in this group
+      const balances: Record<string, { paid: number; share: number; net: number }> = {};
+      g.members.forEach(m => {
+        balances[m.id] = { paid: 0, share: 0, net: 0 };
+      });
+
+      gTxs.forEach(tx => {
+        const txAmt = Number(tx.amount) || 0;
+        if (tx.splitDetails && tx.splitDetails.length > 0) {
+          const payerId = tx.paidByMemberId || g.members[0]?.id;
+          if (payerId && balances[payerId]) {
+            balances[payerId].paid += txAmt;
+          }
+          tx.splitDetails.forEach(s => {
+            if (s.isSelected && balances[s.memberId]) {
+              balances[s.memberId].share += Number(s.shareAmount) || 0;
+            }
+          });
+        } else {
+          const payerId = tx.paidByMemberId || g.members[0]?.id;
+          if (payerId && balances[payerId]) {
+            balances[payerId].paid += txAmt;
+          }
+          const perPerson = g.members.length > 0 ? (txAmt / g.members.length) : 0;
+          g.members.forEach(m => {
+            if (balances[m.id]) {
+              balances[m.id].share += perPerson;
+            }
+          });
+        }
+      });
+
+      // Find current user in this group
+      const userMember = g.members.find(m => 
+        (m.name && m.name.includes('(You)')) ||
+        (m.email && user.email && m.email.toLowerCase() === user.email.toLowerCase()) ||
+        m.id === 'mem-1'
+      );
+      if (userMember && balances[userMember.id]) {
+        const net = balances[userMember.id].paid - balances[userMember.id].share;
+        if (net > 0.01) {
+          totalYouAreOwed += net;
+        } else if (net < -0.01) {
+          totalYouOwe += Math.abs(net);
+        }
+      }
+    });
+
+    return {
+      totalSpendAll,
+      totalYouAreOwed,
+      totalYouOwe,
+      groupsCount: groups.length,
+      membersCount: uniqueMemberKeys.size || groups.reduce((acc, g) => acc + g.members.length, 0),
+    };
+  }, [groups, transactions, user.email]);
+
+  // Modal Open Handlers
+  const handleOpenAddExpense = () => {
+    if (!activeGroup) return;
+    setExpTitle('');
+    setExpAmount('');
+    setExpPaidBy('mem-1');
+    setExpAccountId(accounts[0]?.id || 'acc-1');
+    setExpNotes('');
+    setSplitMode('equal');
+    setSelectedMemberIds(activeGroup.members.map(m => m.id));
+    setExactShares({});
+    setPercentageShares({});
+    setIsAddExpenseModalOpen(true);
+  };
+
+  const handleOpenEditExpense = (tx: Transaction) => {
+    if (!activeGroup) return;
+    setEditingTx(tx);
+    setEditExpTitle(tx.title);
+    setEditExpAmount(String(tx.amount));
+    const txDateStr = tx.date || new Date().toISOString().split('T')[0];
+    setEditExpDate(txDateStr.includes('T') ? txDateStr.split('T')[0] : txDateStr);
+    setEditExpPaidBy(tx.paidByMemberId || activeGroup.members[0]?.id || 'mem-1');
+    setEditExpAccountId(tx.accountId || accounts[0]?.id || 'acc-1');
+    setEditExpNotes(tx.notes || '');
+
+    if (tx.splitDetails && tx.splitDetails.length > 0) {
+      const selectedIds = tx.splitDetails.filter(s => s.isSelected).map(s => s.memberId);
+      setEditSelectedMemberIds(selectedIds.length > 0 ? selectedIds : activeGroup.members.map(m => m.id));
+      
+      const exacts: Record<string, number> = {};
+      const pcts: Record<string, number> = {};
+      tx.splitDetails.forEach(s => {
+        exacts[s.memberId] = s.shareAmount;
+        if (tx.amount > 0) {
+          pcts[s.memberId] = Math.round((s.shareAmount / tx.amount) * 100);
+        }
+      });
+      setEditExactShares(exacts);
+      setEditPercentageShares(pcts);
+      setEditSplitMode('equal');
+    } else {
+      setEditSelectedMemberIds(activeGroup.members.map(m => m.id));
+      setEditExactShares({});
+      setEditPercentageShares({});
+      setEditSplitMode('equal');
+    }
+  };
+
+  const handleOpenSettleModal = (fromId?: string, toId?: string, amount?: number) => {
+    if (!activeGroup) return;
+    const defaultFrom = fromId || (activeGroup.members.find(m => memberBalances[m.id]?.net < -0.01)?.id || 'mem-1');
+    const defaultTo = toId || (activeGroup.members.find(m => memberBalances[m.id]?.net > 0.01 && m.id !== defaultFrom)?.id || activeGroup.members.find(m => m.id !== defaultFrom)?.id || 'mem-1');
+    
+    setSettleFrom(defaultFrom);
+    setSettleTo(defaultTo);
+    setSettleAmount(amount ? String(amount) : '');
+    setSettleAccount(accounts[0]?.id || 'acc-1');
+    setIsSettleModalOpen(true);
+  };
+
+  // Direct Settle from Debt Matrix or Member card
+  const handleDirectSettle = (fromMemberId: string, toMemberId: string, amount: number) => {
+    handleOpenSettleModal(fromMemberId, toMemberId, amount);
+  };
+
+  // Save Expense Handler
   const totalAmountNum = Number(expAmount) || 0;
   const activeCount = selectedMemberIds.length;
   const perPersonShare = activeCount > 0 ? Math.round((totalAmountNum / activeCount) * 100) / 100 : 0;
@@ -523,10 +629,9 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
     setIsAddExpenseModalOpen(false);
   };
 
-  // Dynamic calculation for edit modal
+  // Save Edit Expense Handler
   const editTotalAmountNum = Number(editExpAmount) || 0;
   const editActiveCount = editSelectedMemberIds.length;
-  const editPerPersonShare = editActiveCount > 0 ? Math.round((editTotalAmountNum / editActiveCount) * 100) / 100 : 0;
 
   const handleSaveEditExpense = (e: React.FormEvent) => {
     e.preventDefault();
@@ -574,29 +679,29 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
     setEditingTx(null);
   };
 
+  // Create Group Handler
   const handleCreateNewGroup = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newGroupName) return;
 
-    // Convert selected global friends to initial group members
-    const chosenFriends = (friends || []).filter(f => selectedInitialFriendIds.includes(f.id));
+    const selectedFriends = (friends || []).filter(f => selectedInitialFriendIds.includes(f.id));
     const initialMembers: GroupMember[] = [
-      { 
-        id: 'mem-1', 
-        name: `${user.name} (You)`, 
-        email: user.email, 
-        avatarColor: user.avatarColor, 
-        role: 'admin', 
-        joinedAt: new Date().toISOString().split('T')[0] 
+      {
+        id: 'mem-1',
+        name: user.name,
+        email: user.email,
+        avatarColor: user.avatarColor || '#3B82F6',
+        role: 'admin',
+        joinedAt: new Date().toISOString().split('T')[0],
       },
-      ...chosenFriends.map((f, idx) => ({
-        id: `mem-${Date.now().toString().slice(-4)}-${idx + 2}`,
+      ...selectedFriends.map((f, idx) => ({
+        id: `mem-f-${Date.now()}-${idx}`,
         name: f.name,
-        email: f.email,
-        avatarColor: f.avatarColor || '#3B82F6',
+        email: f.email || `${(f.name || 'member').toLowerCase().replace(/\s+/g, '')}@example.com`,
+        avatarColor: f.avatarColor || '#10B981',
         role: 'member' as const,
-        joinedAt: new Date().toISOString().split('T')[0]
-      }))
+        joinedAt: new Date().toISOString().split('T')[0],
+      })),
     ];
 
     onCreateGroup({
@@ -615,13 +720,13 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
     setFriendSearchCreate('');
   };
 
-  // Add a single friend from global directory directly to active group
+  // Quick Add friend to active group
   const handleQuickAddFriendToGroup = (friend: Friend) => {
     if (!activeGroup) return;
     onAddGroupMember(activeGroup.id, friend.name, friend.email);
   };
 
-  // Add multiple selected global friends to active group
+  // Batch Add friends to active group
   const handleBatchAddFriendsToGroup = () => {
     if (!activeGroup || selectedFriendIdsToAdd.length === 0) return;
     const friendsToAdd = (friends || []).filter(f => selectedFriendIdsToAdd.includes(f.id));
@@ -633,14 +738,13 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
     setIsAddMemberModalOpen(false);
   };
 
+  // Add Member Submit
   const handleAddMemberSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeGroup || !newMemName || !newMemEmail) return;
 
-    // 1. Add to group
     onAddGroupMember(activeGroup.id, newMemName, newMemEmail);
 
-    // 2. Also add to global friends list if checked and onAddFriend is provided
     if (saveToGlobalFriends && onAddFriend) {
       onAddFriend({
         name: newMemName,
@@ -657,6 +761,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
     setSelectedFriendIdsToAdd([]);
   };
 
+  // Execute Settle Debt
   const handleExecuteSettleDebt = (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeGroup || !settleFrom || !settleTo || !settleAmount) return;
@@ -665,553 +770,200 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
     setSettleAmount('');
   };
 
+  const toggleMemberSelection = (memberId: string) => {
+    setSelectedMemberIds(prev =>
+      prev.includes(memberId)
+        ? prev.filter(id => id !== memberId)
+        : [...prev, memberId]
+    );
+  };
+
+  const toggleEditMemberSelection = (memberId: string) => {
+    setEditSelectedMemberIds(prev =>
+      prev.includes(memberId)
+        ? prev.filter(id => id !== memberId)
+        : [...prev, memberId]
+    );
+  };
+
+  // Select Group handler with mobile view transition
+  const handleSelectGroup = (groupId: string | null) => {
+    onSelectGroup(groupId);
+    setMobileView('chat');
+  };
+
   return (
-    <div className="space-y-6 pb-12">
-      {/* Top Action Toolbar */}
-      <div className="flex items-center justify-end gap-3 flex-wrap">
-        <button
-          onClick={() => setIsCreateGroupModalOpen(true)}
-          id="btn-create-group"
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm shadow-sm transition active:scale-95"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Create New Group</span>
-        </button>
+    <div className="space-y-4 pb-8">
+      {/* Unified Top Toolbar: Metrics Cards + Action Buttons */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 flex-wrap">
+        {/* Left Side: Compact Metric Cards (same button height) */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Total Shared Spend Pill */}
+          <div className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-200/90 rounded-xl text-xs shadow-2xs">
+            <Receipt className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
+            <span className="text-slate-500 font-medium">Shared Spend:</span>
+            <span className="font-bold text-slate-900 privacy-value">
+              {user.currency}{Math.round(overallGroupStats.totalSpendAll).toLocaleString('en-IN')}
+            </span>
+          </div>
+
+          {/* You are Owed Pill */}
+          <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50/80 border border-emerald-200 text-emerald-900 rounded-xl text-xs shadow-2xs">
+            <TrendingUp className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+            <span className="text-emerald-700 font-medium">You are owed:</span>
+            <span className="font-bold text-emerald-800 privacy-value">
+              +{user.currency}{Math.round(overallGroupStats.totalYouAreOwed).toLocaleString('en-IN')}
+            </span>
+          </div>
+
+          {/* You Owe Pill */}
+          <div className="flex items-center gap-2 px-3 py-2 bg-rose-50/80 border border-rose-200 text-rose-900 rounded-xl text-xs shadow-2xs">
+            <TrendingDown className="w-3.5 h-3.5 text-rose-600 flex-shrink-0" />
+            <span className="text-rose-700 font-medium">You owe:</span>
+            <span className="font-bold text-rose-800 privacy-value">
+              -{user.currency}{Math.round(overallGroupStats.totalYouOwe).toLocaleString('en-IN')}
+            </span>
+          </div>
+        </div>
+
+        {/* Right Side: Action Buttons */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {activeGroup && (
+            <button
+              onClick={() => handleOpenSettleModal()}
+              id="btn-top-record-settlement"
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer shadow-2xs"
+            >
+              <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+              <span>Record Settlement</span>
+            </button>
+          )}
+
+          {activeGroup && (
+            <button
+              onClick={handleOpenAddExpense}
+              id="btn-top-add-group-expense"
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-2xs active:scale-95 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Group Expense</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => setIsCreateGroupModalOpen(true)}
+            id="btn-top-create-group"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-2xs active:scale-95 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>New Group</span>
+          </button>
+        </div>
       </div>
 
-      {/* Groups Horizontal Selector Tabs */}
-      {groups.length > 0 && (
-        <div className="flex items-center space-x-3 overflow-x-auto pb-2 scrollbar-none">
-          {groups.map((grp) => {
-            const isSelected = grp.id === activeGroup?.id;
-            return (
-              <button
-                key={grp.id}
-                onClick={() => onSelectGroup(grp.id)}
-                className={`flex items-center space-x-2 px-4 py-2.5 rounded-2xl border text-sm font-semibold transition whitespace-nowrap shadow-xs ${
-                  isSelected
-                    ? 'bg-slate-900 text-white border-slate-900 shadow-md'
-                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                }`}
-              >
-                <span>{grp.name}</span>
-                <span className={`text-xs px-2 py-0.5 rounded-full ${isSelected ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
-                  {grp.members.length}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Active Group Details Card */}
-      {activeGroup ? (
-        <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
-          {/* Group Header Banner */}
-          <div className="p-6 bg-slate-900 text-white flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <div>
-              <div className="flex items-center gap-2 text-xs text-slate-400">
-                <span>Created {activeGroup.createdAt}</span>
-                <span>•</span>
-                <span>{activeGroup.members.length} members</span>
-              </div>
-              <h2 className="text-xl sm:text-2xl font-extrabold text-white mt-1">{activeGroup.name}</h2>
-              {activeGroup.description && (
-                <p className="text-xs text-slate-300 mt-1">{activeGroup.description}</p>
-              )}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="group bg-slate-800/80 px-4 py-2 rounded-xl border border-slate-700 text-right">
-                <span className="text-[10px] uppercase text-slate-400 block font-medium">Total Group Spend</span>
-                <span className="text-lg font-bold text-emerald-400 privacy-value">{activeGroup.currency}{totalGroupSpend.toLocaleString('en-IN')}</span>
-              </div>
-
-              <button
-                onClick={openAddExpenseModal}
-                id="btn-group-add-expense"
-                className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow-md transition active:scale-95 cursor-pointer"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Add Expense</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Group Navigation Sub-tabs */}
-          <div className="px-6 border-b border-slate-200 flex items-center space-x-6 bg-slate-50/50">
-            {[
-              { id: 'expenses_activity', label: 'Activity Flow', count: flowItems.length, icon: MessageSquare },
-              { id: 'members', label: 'Members', count: activeGroup.members.length, icon: Users2 },
-            ].map((tab) => {
-              const Icon = tab.icon;
-              const isActive = groupTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setGroupTab(tab.id as any)}
-                  className={`py-3.5 flex items-center space-x-2 text-xs font-bold border-b-2 transition cursor-pointer ${
-                    isActive
-                      ? 'border-blue-600 text-blue-600'
-                      : 'border-transparent text-slate-700 hover:text-slate-900'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  <span>{tab.label}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isActive ? 'bg-blue-100 text-blue-800' : 'bg-slate-200 text-slate-700'}`}>
-                    {tab.count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* UNIFIED CHAT-STYLE SINGLE FLOW (Expenses, Member Updates, Settlements) - INDEPENDENT SCROLL CONTAINER */}
-          {groupTab === 'expenses_activity' && (
-            <div className="flex flex-col bg-slate-50/40">
-              {/* Activity Flow Container Toolbar / Header Status */}
-              <div className="px-6 py-2.5 bg-white/90 backdrop-blur-xs border-b border-slate-200/80 flex items-center justify-between text-xs text-slate-500">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="inline-flex items-center gap-1.5 font-bold text-slate-700">
-                    <History className="w-3.5 h-3.5 text-blue-600" />
-                    Activity Flow
-                  </span>
-                  <span>•</span>
-                  <span className="text-slate-500 font-medium">{flowItems.length} event{flowItems.length === 1 ? '' : 's'} recorded</span>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {flowItems.length > 2 && (
-                    <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          activityContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-                        }}
-                        className="px-2 py-1 text-[11px] font-semibold text-slate-600 hover:text-slate-900 hover:bg-white rounded-md transition cursor-pointer flex items-center gap-1 shadow-2xs"
-                        title="Scroll to Top"
-                      >
-                        <ArrowUp className="w-3 h-3" />
-                        <span className="hidden sm:inline">Top</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (activityContainerRef.current) {
-                            activityContainerRef.current.scrollTo({
-                              top: activityContainerRef.current.scrollHeight,
-                              behavior: 'smooth',
-                            });
-                          }
-                        }}
-                        className="px-2 py-1 text-[11px] font-semibold text-slate-600 hover:text-slate-900 hover:bg-white rounded-md transition cursor-pointer flex items-center gap-1 shadow-2xs"
-                        title="Scroll to Bottom"
-                      >
-                        <ArrowDown className="w-3 h-3" />
-                        <span className="hidden sm:inline">Bottom</span>
-                      </button>
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={openAddExpenseModal}
-                    className="px-2.5 py-1 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 hover:text-blue-800 rounded-lg border border-blue-200/80 transition cursor-pointer flex items-center gap-1"
-                  >
-                    <Plus className="w-3 h-3" />
-                    <span>Add Expense</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Independently Scrollable Timeline Viewport */}
-              <div
-                ref={activityContainerRef}
-                id="activity-flow-scroll-container"
-                className="h-[600px] max-h-[calc(100vh-280px)] min-h-[380px] overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-6 scroll-smooth scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100 focus:outline-none"
-                tabIndex={0}
-              >
-                <div className="max-w-3xl mx-auto space-y-6">
-                
-                {/* Empty State */}
-                {flowItems.length === 0 ? (
-                  <div className="bg-white rounded-3xl border border-slate-200/80 p-12 text-center shadow-2xs">
-                    <MessageSquare className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                    <h4 className="text-base font-bold text-slate-900">Start the group conversation</h4>
-                    <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                      Add your first shared expense, split bills with roommates or travel buddies, and log settlements in real-time.
-                    </p>
-                    <button
-                      onClick={openAddExpenseModal}
-                      className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer"
-                    >
-                      Record First Expense
-                    </button>
-                  </div>
-                ) : (
-                  /* Chat Timeline Stream */
-                  <div className="space-y-6">
-                    {groupedFlow.map((group, gIdx) => (
-                      <div key={`flow-group-${group.dateLabel}-${gIdx}`} className="space-y-3">
-                        {/* Date Divider Pill */}
-                        <div className="flex items-center justify-center my-4">
-                          <span className="bg-slate-200/90 text-slate-700 text-[11px] font-bold px-3 py-0.5 rounded-full border border-slate-300/50 shadow-2xs select-none">
-                            {group.dateLabel}
-                          </span>
-                        </div>
-
-                        {/* Event Messages */}
-                        {group.items.map((item, itemIdx) => {
-                          const isSystemAction =
-                            item.type === 'member_joined' ||
-                            item.type === 'member_left' ||
-                            item.type === 'group_created' ||
-                            item.type === 'tx_deleted' ||
-                            item.type === 'system';
-
-                          // Render System Notification (Centered WhatsApp Pill)
-                          if (isSystemAction) {
-                            return (
-                              <div key={`flow-sys-${item.id || itemIdx}-${itemIdx}`} className="flex justify-center my-2.5">
-                                <div className="bg-white text-slate-700 text-xs font-medium px-4 py-1.5 rounded-full border border-slate-200/90 shadow-2xs flex items-center gap-2 max-w-md text-center">
-                                  {item.type === 'member_joined' && <UserPlus className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />}
-                                  {item.type === 'member_left' && <UserMinus className="w-3.5 h-3.5 text-rose-500 flex-shrink-0" />}
-                                  {item.type === 'group_created' && <Users2 className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />}
-                                  {item.type === 'tx_deleted' && <Trash2 className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />}
-                                  <span>{item.message}</span>
-                                  <span className="text-[10px] text-slate-400 font-normal">
-                                    • {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                  </span>
-                                </div>
-                              </div>
-                            );
-                          }
-
-                          // Render Settlement Message
-                          if (item.type === 'settlement') {
-                            return (
-                              <div key={`flow-settle-${item.id || itemIdx}-${itemIdx}`} className="flex items-start space-x-3 my-3">
-                                <div
-                                  className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-xs shadow-2xs flex-shrink-0 mt-0.5"
-                                  style={{ backgroundColor: item.actorAvatarColor || '#10B981' }}
-                                >
-                                  {item.actorName.substring(0, 2).toUpperCase()}
-                                </div>
-
-                                <div className="flex-1 bg-emerald-50/70 rounded-2xl border border-emerald-200/80 shadow-2xs p-4 hover:border-emerald-300 transition">
-                                  <div className="flex items-center justify-between gap-2">
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                      <span className="font-bold text-xs text-slate-900">{item.actorName}</span>
-                                      <span className="text-[11px] font-semibold text-emerald-700 flex items-center gap-1">
-                                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                        settled debt
-                                      </span>
-                                    </div>
-                                    <span className="text-[10px] text-slate-500 font-medium">
-                                      {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                    </span>
-                                  </div>
-
-                                  <div className="mt-2 p-2.5 bg-white rounded-xl border border-emerald-100 flex items-center justify-between gap-3">
-                                    <p className="text-xs font-semibold text-slate-900">{item.message}</p>
-                                    {item.details?.amount && (
-                                      <span className="text-sm font-extrabold text-emerald-700 privacy-value">
-                                        {user.currency}{item.details.amount.toLocaleString('en-IN')}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          }
-
-                          // Render Expense Message Card (Added or Edited)
-                          const currentTx = item.tx || groupTransactions.find(t => t.id === item.details?.txId || t.id === item.id);
-                          const payer = currentTx
-                            ? (activeGroup.members.find(m => m.id === currentTx?.paidByMemberId) || activeGroup.members[0])
-                            : null;
-                          const selectedCount = currentTx?.splitDetails?.filter(s => s.isSelected).length || activeGroup.members.length;
-                          const deselectedMembers = currentTx?.splitDetails?.filter(s => !s.isSelected) || [];
-                          const amount = currentTx?.amount || item.details?.amount || 0;
-                          const title = currentTx?.title || item.details?.txTitle || 'Expense';
-
-                          return (
-                            <div key={`flow-exp-${item.id || itemIdx}-${itemIdx}`} className="flex items-start space-x-3 my-3">
-                              {/* Member Avatar */}
-                              <div
-                                className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-xs shadow-2xs flex-shrink-0 mt-0.5"
-                                style={{ backgroundColor: item.actorAvatarColor || '#3B82F6' }}
-                              >
-                                {item.actorName.substring(0, 2).toUpperCase()}
-                              </div>
-
-                              {/* Chat Bubble Card */}
-                              <div className="flex-1 bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-4 hover:border-slate-300 transition group">
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    <span className="font-bold text-xs text-slate-900">{item.actorName}</span>
-                                    <span className="text-[11px] text-slate-500 font-medium">
-                                      {item.type === 'tx_edited' ? 'updated expense' : 'added an expense'}
-                                    </span>
-                                  </div>
-                                  <span className="text-[10px] text-slate-500 font-medium">
-                                    {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                  </span>
-                                </div>
-
-                                {/* Expense Details Row */}
-                                <div className="mt-2.5 p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-start justify-between gap-3">
-                                  <div className="flex items-start gap-2.5">
-                                    <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xs flex-shrink-0 mt-0.5">
-                                      <Receipt className="w-4 h-4" />
-                                    </div>
-                                    <div>
-                                      <h4 className="font-bold text-sm text-slate-900">{title}</h4>
-                                      <p className="text-xs text-slate-600 mt-0.5">
-                                        Paid by <strong className="text-slate-900">{payer?.name || item.actorName}</strong> • Split among <strong className="text-slate-900">{selectedCount} members</strong>
-                                      </p>
-                                      {item.tx?.notes && (
-                                        <p className="text-xs text-slate-500 italic mt-0.5">"{item.tx.notes}"</p>
-                                      )}
-                                    </div>
-                                  </div>
-
-                                  <div className="flex flex-col items-end flex-shrink-0">
-                                    <span className="text-base font-extrabold text-slate-900 privacy-value">
-                                      {user.currency}{amount.toLocaleString('en-IN')}
-                                    </span>
-
-                                    {/* Action Buttons */}
-                                    {currentTx && (
-                                      <div className="flex items-center gap-1 mt-1.5">
-                                        <button
-                                          onClick={() => openEditExpenseModal(currentTx)}
-                                          className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition cursor-pointer flex items-center gap-1 text-[11px] font-medium"
-                                          title="Edit Expense"
-                                        >
-                                          <Edit2 className="w-3.5 h-3.5" />
-                                          <span className="hidden sm:inline">Edit</span>
-                                        </button>
-                                        <button
-                                          onClick={() => onDeleteGroupExpense(activeGroup.id, currentTx.id)}
-                                          className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer flex items-center gap-1 text-[11px] font-medium"
-                                          title="Delete Expense"
-                                        >
-                                          <Trash2 className="w-3.5 h-3.5" />
-                                          <span className="hidden sm:inline">Delete</span>
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-
-                                {/* Deselected warning tag if any member was excluded */}
-                                {deselectedMembers.length > 0 && (
-                                  <div className="mt-2 flex items-center gap-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md inline-flex">
-                                    <AlertCircle className="w-3 h-3" />
-                                    <span>Excluded from split: {deselectedMembers.map(m => m.memberName || 'Member').join(', ')}</span>
-                                  </div>
-                                )}
-
-                                {/* Member Split Pills */}
-                                {item.tx?.splitDetails && (
-                                  <div className="mt-3 pt-2.5 border-t border-slate-100 flex flex-wrap gap-1.5">
-                                    {item.tx.splitDetails.map((split, splitIdx) => (
-                                      <span
-                                        key={`split-${split.memberId || splitIdx}-${splitIdx}`}
-                                        className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                                          split.isSelected
-                                            ? 'bg-blue-50 text-blue-700 border border-blue-200/80'
-                                            : 'bg-slate-100 text-slate-400 line-through'
-                                        }`}
-                                      >
-                                        {(split.memberName || 'Member').split(' ')[0]}: <span className="privacy-value">{user.currency}{split.shareAmount}</span>
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB: GROUP MEMBERS WITH AMOUNT OWED & NET POSITION */}
-          {groupTab === 'members' && (
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">Group Members ({activeGroup.members.length})</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">Individual shares, total paid, and net balance owed.</p>
-                </div>
-                <button
-                  onClick={() => {
-                    setSelectedFriendIdsToAdd([]);
-                    setFriendSearchAdd('');
-                    setAddMemberTab(unaddedFriends.length > 0 ? 'global_friends' : 'manual');
-                    setIsAddMemberModalOpen(true);
-                  }}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer transition"
-                >
-                  <UserPlus className="w-3.5 h-3.5" />
-                  <span>Add Member</span>
-                </button>
-              </div>
-
-              {/* Quick Add from Global Friends Bar (if any available) */}
-              {unaddedFriends.length > 0 && (
-                <div className="mb-5 p-3.5 bg-blue-50/70 rounded-2xl border border-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                  <div className="flex items-center gap-2">
-                    <Users2 className="w-4 h-4 text-blue-600 flex-shrink-0" />
-                    <div>
-                      <p className="text-xs font-bold text-blue-900">Quick add from your Friends Directory:</p>
-                      <p className="text-[11px] text-blue-700">{unaddedFriends.length} global friend{unaddedFriends.length > 1 ? 's' : ''} not in this group yet</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {unaddedFriends.slice(0, 4).map((f) => (
-                      <button
-                        key={f.id}
-                        onClick={() => handleQuickAddFriendToGroup(f)}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white hover:bg-blue-600 text-blue-700 hover:text-white font-bold text-xs rounded-xl border border-blue-200 shadow-2xs transition cursor-pointer"
-                        title={`Add ${f.name} to this group`}
-                      >
-                        <div
-                          className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[9px]"
-                          style={{ backgroundColor: f.avatarColor || '#3B82F6' }}
-                        >
-                          {(f.name || 'F').substring(0, 1).toUpperCase()}
-                        </div>
-                        <span>+ {(f.name || 'Friend').split(' ')[0]}</span>
-                      </button>
-                    ))}
-                    {unaddedFriends.length > 4 && (
-                      <button
-                        onClick={() => {
-                          setAddMemberTab('global_friends');
-                          setIsAddMemberModalOpen(true);
-                        }}
-                        className="text-xs font-bold text-blue-700 hover:underline px-1 cursor-pointer"
-                      >
-                        +{unaddedFriends.length - 4} more
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              <div className="divide-y divide-slate-100">
-                {activeGroup.members.map((mem) => {
-                  const balance = memberBalances[mem.id];
-                  const net = balance ? balance.net : 0;
-                  const isOwed = net > 0.01;
-                  const owes = net < -0.01;
-
-                  return (
-                    <div key={mem.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div className="flex items-center space-x-3">
-                        <div
-                          className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-xs shadow-2xs flex-shrink-0"
-                          style={{ backgroundColor: mem.avatarColor }}
-                        >
-                          {mem.name.substring(0, 2).toUpperCase()}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-xs text-slate-900">{mem.name}</span>
-                            {mem.role === 'admin' && (
-                              <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.2 rounded">
-                                Admin
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-[11px] text-slate-500 mt-0.5">
-                            {mem.email} • Paid: <span className="privacy-value font-medium text-slate-700">{user.currency}{balance ? Math.round(balance.paid).toLocaleString('en-IN') : 0}</span> • Share: <span className="privacy-value font-medium text-slate-700">{user.currency}{balance ? Math.round(balance.share).toLocaleString('en-IN') : 0}</span>
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Amount owed against member + Settle / Actions */}
-                      <div className="flex items-center justify-between sm:justify-end gap-3 pl-13 sm:pl-0">
-                        {/* Net status pill */}
-                        <div>
-                          {isOwed ? (
-                            <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2.5 py-1 rounded-full">
-                              <span>+{user.currency}{Math.round(net).toLocaleString('en-IN')}</span>
-                              <span className="text-[10px] font-medium opacity-80">(gets back)</span>
-                            </span>
-                          ) : owes ? (
-                            <span className="inline-flex items-center gap-1 text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200/80 px-2.5 py-1 rounded-full">
-                              <span>-{user.currency}{Math.round(Math.abs(net)).toLocaleString('en-IN')}</span>
-                              <span className="text-[10px] font-medium opacity-80">(owes)</span>
-                            </span>
-                          ) : (
-                            <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
-                              Settled (₹0)
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Settle button if member owes */}
-                        {owes && (
-                          <button
-                            onClick={() => {
-                              setSettleFrom(mem.id);
-                              const bestCreditor = creditors[0];
-                              setSettleTo(bestCreditor?.id || (mem.id === 'mem-1' ? (activeGroup.members.find(m => m.id !== 'mem-1')?.id || '') : 'mem-1'));
-                              setSettleAmount(String(Math.round(Math.abs(net))));
-                              setIsSettleModalOpen(true);
-                            }}
-                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs shadow-2xs transition cursor-pointer flex items-center gap-1"
-                          >
-                            <Check className="w-3 h-3" />
-                            <span>Settle</span>
-                          </button>
-                        )}
-
-                        {mem.id !== 'mem-1' && (
-                          <button
-                            onClick={() => onRemoveGroupMember(activeGroup.id, mem.id, mem.name)}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                            title="Remove member from group"
-                          >
-                            <UserMinus className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="bg-white rounded-3xl border border-slate-200/80 p-12 text-center shadow-sm">
+      {/* Main Workspace Layout */}
+      {groups.length === 0 ? (
+        <div className="bg-white rounded-3xl border border-slate-200 p-12 text-center shadow-2xs">
           <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <Users2 className="w-8 h-8" />
           </div>
-          <h3 className="text-lg font-bold text-slate-900">No Groups Created Yet</h3>
+          <h3 className="text-lg font-bold text-slate-900">No Shared Groups Yet</h3>
           <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 mb-6">
-            Create groups for roommates, road trips, weekend parties, or office projects to split expenses seamlessly with itemized person exclusion.
+            Create groups for apartment expenses, vacations, group dinners, or office projects to split costs with precision and settle up anytime.
           </p>
           <button
             onClick={() => setIsCreateGroupModalOpen(true)}
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition"
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-2xs transition cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>Create Your First Group</span>
           </button>
         </div>
+      ) : (
+        <>
+          <div className="w-full h-[calc(100vh-170px)] min-h-[640px] bg-white rounded-2xl border border-slate-200 shadow-2xs flex overflow-hidden">
+            {/* COLUMN 1: Groups List Sidebar */}
+            <div className={`w-full md:w-80 lg:w-84 xl:w-96 flex-shrink-0 h-full border-r border-slate-200 flex flex-col ${
+              mobileView === 'list' ? 'flex' : 'hidden md:flex'
+            }`}>
+              <GroupListPane
+                user={user}
+                groups={groups}
+                selectedGroupId={activeGroup?.id || null}
+                activityLogs={activityLogs}
+                transactions={transactions}
+                onSelectGroup={handleSelectGroup}
+                onOpenCreateGroupModal={() => setIsCreateGroupModalOpen(true)}
+              />
+            </div>
+
+            {/* COLUMN 2: Center Activity & Expense Flow */}
+            <div className={`flex-1 min-w-0 h-full flex flex-col ${
+              mobileView === 'chat' ? 'flex' : 'hidden md:flex'
+            }`}>
+              <GroupChatPane
+                user={user}
+                activeGroup={activeGroup}
+                flowItems={flowItems}
+                groupedFlow={groupedFlow}
+                totalGroupSpend={totalGroupSpend}
+                isRightPaneOpen={isRightPaneOpen}
+                onToggleRightPane={() => setIsRightPaneOpen(prev => !prev)}
+                onOpenAddExpenseModal={handleOpenAddExpense}
+                onOpenSettleModal={() => handleOpenSettleModal()}
+                onOpenEditExpenseModal={handleOpenEditExpense}
+                onDeleteGroupExpense={onDeleteGroupExpense}
+                onBackToGroupsList={() => setMobileView('list')}
+              />
+            </div>
+
+            {/* COLUMN 3: Right Group Details & Debt Simplification (XL Screens) */}
+            {activeGroup && isRightPaneOpen && (
+              <div className="hidden xl:flex w-80 lg:w-84 xl:w-96 flex-shrink-0 h-full border-l border-slate-200 flex-col">
+                <GroupDetailsPane
+                  user={user}
+                  activeGroup={activeGroup}
+                  memberBalances={memberBalances}
+                  simplifiedDebts={simplifiedDebts}
+                  totalGroupSpend={totalGroupSpend}
+                  unaddedFriends={unaddedFriends}
+                  onClose={() => setIsRightPaneOpen(false)}
+                  onOpenAddMemberModal={(tab) => {
+                    setAddMemberTab(tab || 'global_friends');
+                    setIsAddMemberModalOpen(true);
+                  }}
+                  onQuickAddFriend={handleQuickAddFriendToGroup}
+                  onRemoveMember={onRemoveGroupMember}
+                  onDirectSettle={handleDirectSettle}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Mobile/Tablet Slide-over for Group Details when toggled */}
+          {activeGroup && isRightPaneOpen && (
+            <div className="xl:hidden fixed inset-0 z-40 flex justify-end bg-slate-900/40 backdrop-blur-xs animate-fadeIn">
+              <div className="w-full max-w-sm h-full bg-white shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
+                <GroupDetailsPane
+                  user={user}
+                  activeGroup={activeGroup}
+                  memberBalances={memberBalances}
+                  simplifiedDebts={simplifiedDebts}
+                  totalGroupSpend={totalGroupSpend}
+                  unaddedFriends={unaddedFriends}
+                  onClose={() => setIsRightPaneOpen(false)}
+                  onOpenAddMemberModal={(tab) => {
+                    setAddMemberTab(tab || 'global_friends');
+                    setIsAddMemberModalOpen(true);
+                  }}
+                  onQuickAddFriend={handleQuickAddFriendToGroup}
+                  onRemoveMember={onRemoveGroupMember}
+                  onDirectSettle={handleDirectSettle}
+                />
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* MODAL 1: Add Group Expense with Advanced SplitEditor */}
@@ -1220,7 +972,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-2">
               <div>
-                <h2 className="text-xl font-bold text-slate-900">Add Group Expense</h2>
+                <h2 className="text-xl font-black text-slate-900">Add Group Expense</h2>
                 <p className="text-xs text-slate-600">
                   Group: <strong>{activeGroup.name}</strong> • Split equally, by exact amount, or percentages.
                 </p>
@@ -1361,7 +1113,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-2">
               <div>
-                <h2 className="text-xl font-bold text-slate-900">Create New Group</h2>
+                <h2 className="text-xl font-black text-slate-900">Create New Group</h2>
                 <p className="text-xs text-slate-600">Set up a group for a trip, house rent, or shared project.</p>
               </div>
               <button
@@ -1397,18 +1149,35 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Group Color</label>
-                <div className="flex items-center gap-2">
-                  {['#0EA5E9', '#10B981', '#EC4899', '#8B5CF6', '#F59E0B', '#EF4444'].map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => setNewGroupColor(c)}
-                      className={`w-7 h-7 rounded-full transition-transform cursor-pointer ${newGroupColor === c ? 'scale-125 ring-2 ring-slate-900' : 'hover:scale-110'}`}
-                      style={{ backgroundColor: c }}
-                    />
-                  ))}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Category</label>
+                  <select
+                    value={newGroupCat}
+                    onChange={(e) => setNewGroupCat(e.target.value as any)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900"
+                  >
+                    <option value="Trip">Trip</option>
+                    <option value="Home">Home</option>
+                    <option value="Project">Project</option>
+                    <option value="Friends">Friends</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Group Color</label>
+                  <div className="flex items-center gap-1.5 pt-1">
+                    {['#0EA5E9', '#10B981', '#EC4899', '#8B5CF6', '#F59E0B', '#EF4444'].map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setNewGroupColor(c)}
+                        className={`w-6 h-6 rounded-full transition-transform cursor-pointer ${newGroupColor === c ? 'scale-125 ring-2 ring-slate-900' : 'hover:scale-110'}`}
+                        style={{ backgroundColor: c }}
+                      />
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -1443,7 +1212,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
 
                   <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
                     {friends
-                      .filter(f => f.name.toLowerCase().includes(friendSearchCreate.toLowerCase()) || (f.email && f.email.toLowerCase().includes(friendSearchCreate.toLowerCase())))
+                      .filter(f => (f.name || '').toLowerCase().includes((friendSearchCreate || '').toLowerCase()) || (f.email && f.email.toLowerCase().includes((friendSearchCreate || '').toLowerCase())))
                       .map(friend => {
                         const isSelected = selectedInitialFriendIds.includes(friend.id);
                         return (
@@ -1510,7 +1279,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-2">
               <div>
-                <h2 className="text-xl font-bold text-slate-900">Add Member to Group</h2>
+                <h2 className="text-xl font-black text-slate-900">Add Member to Group</h2>
                 <p className="text-xs text-slate-600">
                   Group: <strong>{activeGroup.name}</strong>
                 </p>
@@ -1569,7 +1338,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
 
                     <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
                       {unaddedFriends
-                        .filter(f => f.name.toLowerCase().includes(friendSearchAdd.toLowerCase()) || (f.email && f.email.toLowerCase().includes(friendSearchAdd.toLowerCase())))
+                        .filter(f => (f.name || '').toLowerCase().includes((friendSearchAdd || '').toLowerCase()) || (f.email && f.email.toLowerCase().includes((friendSearchAdd || '').toLowerCase())))
                         .map(friend => {
                           const isSelected = selectedFriendIdsToAdd.includes(friend.id);
                           return (
@@ -1723,7 +1492,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
       {isSettleModalOpen && activeGroup && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fadeIn">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
-            <h2 className="text-xl font-bold text-slate-900 mb-1">Record Group Settlement</h2>
+            <h2 className="text-xl font-black text-slate-900 mb-1">Record Group Settlement</h2>
             <p className="text-xs text-slate-700 mb-4">
               Record a payment between two group members to clear or reduce debt.
             </p>
@@ -1788,13 +1557,13 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsSettleModalOpen(false)}
-                  className="px-4 py-2.5 text-slate-600 hover:bg-slate-100 rounded-xl text-sm font-semibold"
+                  className="px-4 py-2.5 text-slate-600 hover:bg-slate-100 rounded-xl text-sm font-semibold cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-semibold shadow-sm"
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-semibold shadow-sm cursor-pointer"
                 >
                   Record Settlement
                 </button>
@@ -1810,7 +1579,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-2">
               <div>
-                <h2 className="text-xl font-bold text-slate-900">Edit Group Expense</h2>
+                <h2 className="text-xl font-black text-slate-900">Edit Group Expense</h2>
                 <p className="text-xs text-slate-600">
                   Group: <strong>{activeGroup.name}</strong> • Adjust title, amount, payer, or split details.
                 </p>

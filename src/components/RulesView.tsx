@@ -93,9 +93,11 @@ export const RulesView: React.FC<RulesViewProps> = ({
   const filteredRules = useMemo(() => {
     return rules.filter(rule => {
       // Search
-      const matchesSearch = 
-        rule.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        rule.keyword.toLowerCase().includes(searchQuery.toLowerCase());
+      const q = (searchQuery || '').toLowerCase();
+      const matchesSearch = !q || (
+        (rule.name || '').toLowerCase().includes(q) ||
+        (rule.keyword || '').toLowerCase().includes(q)
+      );
       if (!matchesSearch) return false;
 
       // Status

@@ -107,6 +107,24 @@ export interface GroupActivityLog {
   };
 }
 
+export interface FlowItem {
+  id: string;
+  type: 'expense' | 'settlement' | 'member_joined' | 'member_left' | 'group_created' | 'tx_edited' | 'tx_deleted' | 'system';
+  timestamp: string;
+  actorName: string;
+  actorAvatarColor?: string;
+  message: string;
+  tx?: Transaction;
+  details?: {
+    txId?: string;
+    txTitle?: string;
+    amount?: number;
+    currency?: string;
+    fromMemberName?: string;
+    toMemberName?: string;
+  };
+}
+
 export interface Group {
   id: string;
   name: string;

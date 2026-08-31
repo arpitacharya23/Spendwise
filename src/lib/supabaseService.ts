@@ -913,6 +913,7 @@ export async function getSupabaseFriends(userEmail?: string): Promise<Friend[] |
 }
 
 function inferNameFromEmailFallback(email: string): string {
+  if (!email || typeof email !== 'string') return 'Friend';
   const username = email.split('@')[0] || 'Friend';
   const cleaned = username.replace(/[0-9_.-]+$/g, '').replace(/^[0-9_.-]+/g, '');
   const parts = (cleaned || username).split(/[._\-+]+/).filter(Boolean);

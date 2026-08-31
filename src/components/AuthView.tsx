@@ -121,7 +121,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
       let profile: UserProfile;
       if (profileRow) {
         profile = {
-          name: profileRow.name || userEmail.split('@')[0],
+          name: profileRow.name || (userEmail ? userEmail.split('@')[0] : 'User'),
           email: profileRow.email || userEmail,
           currency: profileRow.currency || '₹',
           avatarColor: profileRow.avatar_color || '#3B82F6',
@@ -133,7 +133,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
       } else {
         // If profile row doesn't exist yet, insert into profiles table
         profile = {
-          name: authUser.user_metadata?.name || userEmail.split('@')[0],
+          name: authUser.user_metadata?.name || (userEmail ? userEmail.split('@')[0] : 'User'),
           email: userEmail,
           currency: authUser.user_metadata?.currency || '₹',
           avatarColor: authUser.user_metadata?.avatar_color || '#3B82F6',
