@@ -291,7 +291,7 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({
             )}
           </div>
 
-          {/* Action button */}
+          {/* Action buttons */}
           <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
             {!gsheetConfig.spreadsheetId ? (
               <button
