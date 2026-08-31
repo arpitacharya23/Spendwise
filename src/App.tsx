@@ -56,6 +56,11 @@ import { ProfileModal } from './components/ProfileModal';
 import { NotificationBell } from './components/NotificationBell';
 import { supabase } from './lib/supabase';
 import { 
+  getGoogleSheetSyncStatus,
+  GoogleSheetSyncState,
+  markDataModified 
+} from './lib/googleSheetsService';
+import { 
   getSupabaseProfile, 
   saveSupabaseProfile,
   getSupabaseAccounts, 
@@ -166,6 +171,26 @@ export default function App() {
   // Sync state
   const [isSyncing, setIsSyncing] = useState(false);
   const [isCloudConnected, setIsCloudConnected] = useState<boolean | null>(null);
+
+  // Google Sheets sync status: 'synced' (Green circle), 'pending' (Yellow circle), 'disconnected' (No circle)
+  const [gsheetSyncState, setGsheetSyncState] = useState<GoogleSheetSyncState>(() => getGoogleSheetSyncStatus());
+
+  const checkSyncStatus = useCallback(() => {
+    setGsheetSyncState(getGoogleSheetSyncStatus());
+  }, []);
+
+  useEffect(() => {
+    checkSyncStatus();
+    const handleSyncUpdate = () => checkSyncStatus();
+    window.addEventListener('spendwise_gsheet_sync_updated', handleSyncUpdate);
+    window.addEventListener('spendwise_data_modified', handleSyncUpdate);
+    window.addEventListener('storage', handleSyncUpdate);
+    return () => {
+      window.removeEventListener('spendwise_gsheet_sync_updated', handleSyncUpdate);
+      window.removeEventListener('spendwise_data_modified', handleSyncUpdate);
+      window.removeEventListener('storage', handleSyncUpdate);
+    };
+  }, [checkSyncStatus]);
 
   // Active navigation tab
   const [activeTab, setActiveTab] = useState<string>('dashboard');
@@ -400,6 +425,7 @@ export default function App() {
 
   const handleSaveProfile = async (updatedUser: UserProfile) => {
     setUser(updatedUser);
+    markDataModified();
     try {
       await saveSupabaseProfile(updatedUser);
       localStorage.setItem('spendwise_auth_user', JSON.stringify(updatedUser));
@@ -472,6 +498,7 @@ export default function App() {
 
     setTransactions([newTx, ...transactions]);
     saveSupabaseTransaction(newTx);
+    markDataModified();
 
     // Update account balance if account exists
     if (accounts.some(a => a.id === newTx.accountId)) {
@@ -530,6 +557,7 @@ export default function App() {
     };
     setAccounts([...accounts, newAccount]);
     saveSupabaseAccount(newAccount);
+    markDataModified();
   };
 
   // HANDLER: Update Account Permissions
@@ -542,6 +570,7 @@ export default function App() {
       }
       return a;
     }));
+    markDataModified();
   };
 
   // HANDLER: Pay Credit Card Due
@@ -599,6 +628,7 @@ export default function App() {
     setTransactions([debitTx, creditTx, ...transactions]);
     saveSupabaseTransaction(debitTx);
     saveSupabaseTransaction(creditTx);
+    markDataModified();
   };
 
   // HANDLER: Transfer Funds Between Accounts
@@ -660,6 +690,7 @@ export default function App() {
     setTransactions([outTx, inTx, ...transactions]);
     saveSupabaseTransaction(outTx);
     saveSupabaseTransaction(inTx);
+    markDataModified();
   };
 
   // HANDLER: Edit Account
@@ -672,12 +703,14 @@ export default function App() {
       }
       return a;
     }));
+    markDataModified();
   };
 
   // HANDLER: Delete Account
   const handleDeleteAccount = (accountId: string) => {
     setAccounts(accounts.filter(a => a.id !== accountId));
     deleteSupabaseAccount(accountId);
+    markDataModified();
   };
 
   // HANDLER: Add Loan / EMI
@@ -703,12 +736,14 @@ export default function App() {
     };
     setLoans([...loans, newLoan]);
     saveSupabaseLoan(newLoan);
+    markDataModified();
   };
 
   // HANDLER: Delete Loan
   const handleDeleteLoan = (loanId: string) => {
     setLoans(loans.filter(l => l.id !== loanId));
     deleteSupabaseLoan(loanId);
+    markDataModified();
   };
 
   // HANDLER: Pay Monthly EMI
@@ -753,6 +788,7 @@ export default function App() {
     };
     setTransactions([newTx, ...transactions]);
     saveSupabaseTransaction(newTx);
+    markDataModified();
   };
 
   // HANDLER: Create Group
@@ -772,6 +808,7 @@ export default function App() {
     setGroups([...groups, newGroup]);
     setSelectedGroupId(newGroupId);
     saveSupabaseGroup(newGroup);
+    markDataModified();
 
     // Add activity log
     const newLog: GroupActivityLog = {
@@ -819,6 +856,7 @@ export default function App() {
 
     setTransactions([newTx, ...transactions]);
     saveSupabaseTransaction(newTx);
+    markDataModified();
 
     // Update account
     setAccounts(accounts.map(acc => {
@@ -946,6 +984,7 @@ export default function App() {
 
     setTransactions(transactions.map(t => t.id === txId ? updatedTx : t));
     saveSupabaseTransaction(updatedTx);
+    markDataModified();
 
     if (existingTx.groupId) {
       const newLog: GroupActivityLog = {
@@ -968,6 +1007,7 @@ export default function App() {
     const tx = transactions.find(t => t.id === txId);
     setTransactions(transactions.filter(t => t.id !== txId));
     deleteSupabaseTransaction(txId);
+    markDataModified();
 
     const newLog: GroupActivityLog = {
       id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -1005,6 +1045,7 @@ export default function App() {
       }
       return g;
     }));
+    markDataModified();
 
     const newLog: GroupActivityLog = {
       id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -1029,6 +1070,7 @@ export default function App() {
       }
       return g;
     }));
+    markDataModified();
 
     const newLog: GroupActivityLog = {
       id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -1065,6 +1107,7 @@ export default function App() {
 
     setTransactions([newTx, ...transactions]);
     saveSupabaseTransaction(newTx);
+    markDataModified();
 
     const newLog: GroupActivityLog = {
       id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -1122,6 +1165,7 @@ export default function App() {
     };
     setTransactions([newTx, ...transactions]);
     saveSupabaseTransaction(newTx);
+    markDataModified();
   };
 
   // HANDLER: Add Friend (Bidirectional)
@@ -1139,6 +1183,7 @@ export default function App() {
     };
     setFriends([...friends, newFriend]);
     saveSupabaseFriend(newFriend, user);
+    markDataModified();
     return newFriend;
   };
 
@@ -1147,6 +1192,7 @@ export default function App() {
     const targetFriend = friends.find(f => f.id === friendId);
     setFriends(friends.filter(f => f.id !== friendId));
     deleteSupabaseFriend(friendId, user.email, targetFriend?.email);
+    markDataModified();
   };
 
   // HANDLER: Edit Standalone / Group Transaction
@@ -1179,6 +1225,7 @@ export default function App() {
 
     setTransactions(transactions.map(t => t.id === txId ? updated : t));
     saveSupabaseTransaction(updated);
+    markDataModified();
 
     if (existingTx.groupId) {
       const newLog: GroupActivityLog = {
@@ -1200,6 +1247,7 @@ export default function App() {
   const handleDeleteTransaction = (txId: string) => {
     setTransactions(transactions.filter(t => t.id !== txId));
     deleteSupabaseTransaction(txId);
+    markDataModified();
   };
 
   // HANDLERS: Category Management (User-Scoped)
@@ -1211,6 +1259,7 @@ export default function App() {
     };
     setCategories(prev => [...prev, userScopedCat]);
     saveSupabaseCategory(userScopedCat, user.email);
+    markDataModified();
   };
 
   const handleEditCategory = (categoryId: string, updatedData: Partial<Category>) => {
@@ -1222,6 +1271,7 @@ export default function App() {
       }
       return c;
     }));
+    markDataModified();
   };
 
   const handleDeleteCategory = (categoryId: string, reassignCategoryId?: string) => {
@@ -1237,6 +1287,7 @@ export default function App() {
     }
     setCategories(categories.filter(c => c.id !== categoryId));
     deleteSupabaseCategory(categoryId, user.email);
+    markDataModified();
   };
 
   const handleResetCategories = async () => {
@@ -1246,6 +1297,7 @@ export default function App() {
     } else {
       setCategories(initialCategories);
     }
+    markDataModified();
   };
 
   const handleUpdateCategoryBudget = (categoryId: string, budgetLimit?: number) => {
@@ -1284,6 +1336,7 @@ export default function App() {
     };
     setRules(prev => [rule, ...prev]);
     saveSupabaseRule(rule, user.email);
+    markDataModified();
   };
 
   const handleEditRule = (ruleId: string, updatedData: Partial<TransactionRule>) => {
@@ -1295,11 +1348,13 @@ export default function App() {
       }
       return r;
     }));
+    markDataModified();
   };
 
   const handleDeleteRule = (ruleId: string) => {
     setRules(prev => prev.filter(r => r.id !== ruleId));
     deleteSupabaseRule(ruleId, user.email);
+    markDataModified();
   };
 
   const handleToggleRule = (ruleId: string) => {
@@ -1311,6 +1366,7 @@ export default function App() {
       }
       return r;
     }));
+    markDataModified();
   };
 
   const handleIncrementRuleMatch = (ruleId: string) => {
@@ -1331,6 +1387,7 @@ export default function App() {
     } else {
       setRules(initialRules);
     }
+    markDataModified();
   };
 
   const handleImportRules = (importedRules: TransactionRule[], mode: 'append' | 'replace') => {
@@ -1346,6 +1403,7 @@ export default function App() {
       setRules(prev => [...userScopedRules, ...prev]);
     }
     userScopedRules.forEach(r => saveSupabaseRule(r, user.email));
+    markDataModified();
   };
 
   const handleApplyRulesToAllTransactions = () => {
@@ -1353,6 +1411,7 @@ export default function App() {
     if (modifiedCount > 0) {
       setTransactions(updatedTransactions);
       updatedTransactions.forEach(t => saveSupabaseTransaction(t));
+      markDataModified();
     }
     return modifiedCount;
   };
@@ -1468,25 +1527,55 @@ export default function App() {
               <button
                 onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
                 id="top-profile-menu-button"
+                title={
+                  gsheetSyncState === 'synced'
+                    ? "Google Sheets: All data is synced"
+                    : gsheetSyncState === 'pending'
+                    ? "Google Sheets: New data to be synced"
+                    : (user.name || "User Profile")
+                }
                 className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-slate-100 border border-slate-200/80 bg-white shadow-xs transition group cursor-pointer"
                 aria-expanded={isProfileMenuOpen}
                 aria-haspopup="true"
               >
-                {user.avatarUrl ? (
-                  <img
-                    src={user.avatarUrl}
-                    alt={user.name}
-                    className="w-7 h-7 rounded-full object-cover flex-shrink-0 border border-slate-200"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <div
-                    className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-xs flex-shrink-0"
-                    style={{ backgroundColor: user.avatarColor || '#3B82F6' }}
-                  >
-                    {(user.name || user.email || 'U').split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U'}
-                  </div>
-                )}
+                <div className="relative flex items-center justify-center flex-shrink-0">
+                  {user.avatarUrl ? (
+                    <img
+                      src={user.avatarUrl}
+                      alt={user.name}
+                      className={`w-7 h-7 rounded-full object-cover flex-shrink-0 transition-all duration-200 ${
+                        gsheetSyncState === 'synced' 
+                          ? 'ring-[1.5px] ring-emerald-500 ring-offset-1 ring-offset-white' 
+                          : gsheetSyncState === 'pending'
+                          ? 'ring-[1.5px] ring-amber-400 ring-offset-1 ring-offset-white'
+                          : ''
+                      }`}
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div
+                      className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-xs flex-shrink-0 transition-all duration-200 ${
+                        gsheetSyncState === 'synced' 
+                          ? 'ring-[1.5px] ring-emerald-500 ring-offset-1 ring-offset-white' 
+                          : gsheetSyncState === 'pending'
+                          ? 'ring-[1.5px] ring-amber-400 ring-offset-1 ring-offset-white'
+                          : ''
+                      }`}
+                      style={{ backgroundColor: user.avatarColor || '#3B82F6' }}
+                    >
+                      {(user.name || user.email || 'U').split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U'}
+                    </div>
+                  )}
+                  {/* Status indicator dot - only visible when a Google Sheet is connected */}
+                  {gsheetSyncState !== 'disconnected' && (
+                    <span
+                      className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-1 ring-white shadow-xs ${
+                        gsheetSyncState === 'synced' ? 'bg-emerald-500' : 'bg-amber-400'
+                      }`}
+                      title={gsheetSyncState === 'synced' ? "Google Sheets: Synced" : "Google Sheets: Sync pending"}
+                    />
+                  )}
+                </div>
                 <span className="text-xs font-bold text-slate-800 hidden sm:inline-block max-w-[130px] truncate">
                   {user.name || 'User'}
                 </span>
@@ -1499,27 +1588,68 @@ export default function App() {
                   {/* User Info Header */}
                   <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">
                     <div className="flex items-center gap-3">
-                      {user.avatarUrl ? (
-                        <img
-                          src={user.avatarUrl}
-                          alt={user.name}
-                          className="w-10 h-10 rounded-full object-cover flex-shrink-0 border border-slate-200"
-                          referrerPolicy="no-referrer"
-                        />
-                      ) : (
-                        <div
-                          className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shadow flex-shrink-0"
-                          style={{ backgroundColor: user.avatarColor || '#3B82F6' }}
-                        >
-                          {(user.name || user.email || 'U').split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U'}
-                        </div>
-                      )}
+                      <div className="relative flex items-center justify-center flex-shrink-0">
+                        {user.avatarUrl ? (
+                          <img
+                            src={user.avatarUrl}
+                            alt={user.name}
+                            className={`w-10 h-10 rounded-full object-cover flex-shrink-0 transition-all duration-200 ${
+                              gsheetSyncState === 'synced' 
+                                ? 'ring-[1.5px] ring-emerald-500 ring-offset-1 ring-offset-white' 
+                                : gsheetSyncState === 'pending'
+                                ? 'ring-[1.5px] ring-amber-400 ring-offset-1 ring-offset-white'
+                                : ''
+                            }`}
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          <div
+                            className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shadow flex-shrink-0 transition-all duration-200 ${
+                              gsheetSyncState === 'synced' 
+                                ? 'ring-[1.5px] ring-emerald-500 ring-offset-1 ring-offset-white' 
+                                : gsheetSyncState === 'pending'
+                                ? 'ring-[1.5px] ring-amber-400 ring-offset-1 ring-offset-white'
+                                : ''
+                            }`}
+                            style={{ backgroundColor: user.avatarColor || '#3B82F6' }}
+                          >
+                            {(user.name || user.email || 'U').split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U'}
+                          </div>
+                        )}
+                        {gsheetSyncState !== 'disconnected' && (
+                          <span
+                            className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-1.5 ring-white shadow-xs ${
+                              gsheetSyncState === 'synced' ? 'bg-emerald-500' : 'bg-amber-400'
+                            }`}
+                          />
+                        )}
+                      </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-bold text-slate-900 truncate">{user.name}</p>
                         <p className="text-xs text-slate-500 truncate">{user.email}</p>
-                        <span className="inline-block mt-1 text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200/60">
-                          Currency: {user.currency}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                          <span className="inline-block text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200/60">
+                            {user.currency}
+                          </span>
+                          {gsheetSyncState !== 'disconnected' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsProfileMenuOpen(false);
+                                setIsDatabaseModalOpen(true);
+                              }}
+                              className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded border transition cursor-pointer ${
+                                gsheetSyncState === 'synced'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                  : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                              }`}
+                              title="Click to manage Database & Google Sheets sync settings"
+                            >
+                              <span className={`w-1.5 h-1.5 rounded-full ${gsheetSyncState === 'synced' ? 'bg-emerald-500' : 'bg-amber-400'}`} />
+                              <span>{gsheetSyncState === 'synced' ? 'Google Sheets Synced' : 'Sync Pending'}</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>

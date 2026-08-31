@@ -3,6 +3,8 @@
 // - Google Drive API v3: search/create SpendWise spreadsheet
 // - Google Sheets API v4: batchUpdate, values.get, values.update, values.append
 
+import { requestGoogleWorkspaceToken } from './firebaseAuth';
+
 declare global {
   interface Window {
     google?: any;
@@ -38,6 +40,7 @@ let tokenClientInstance: any = null;
 // Local storage key for storing user's selected sheet info & database target
 export const GSHEET_CONFIG_KEY = 'spendwise_gsheet_config';
 export const DATABASE_SELECTION_KEY = 'spendwise_database_preference';
+export const LAST_DATA_MODIFIED_KEY = 'spendwise_last_data_modified_at';
 
 export interface DatabasePreference {
   useCloudStorage: boolean; // Supabase
@@ -85,6 +88,9 @@ export function getStoredGSheetConfig(): GoogleSheetsSyncConfig {
 export function saveStoredGSheetConfig(config: GoogleSheetsSyncConfig) {
   try {
     localStorage.setItem(GSHEET_CONFIG_KEY, JSON.stringify(config));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('spendwise_gsheet_sync_updated', { detail: config }));
+    }
   } catch (e) {
     console.error('Failed to save gsheet config', e);
   }
@@ -95,8 +101,107 @@ export function clearStoredGSheetConfig() {
     localStorage.removeItem(GSHEET_CONFIG_KEY);
     cachedAccessToken = null;
     tokenExpiresAt = 0;
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('spendwise_gsheet_sync_updated', { detail: null }));
+    }
   } catch (e) {
     console.error('Failed to clear gsheet config', e);
+  }
+}
+
+export function getStoredLastDataModifiedAt(): string | null {
+  try {
+    return localStorage.getItem(LAST_DATA_MODIFIED_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Mark that new local data has been created or modified in SpendWise.
+ * This transitions Google Sheets status to "pending/unsynced" (yellow circle).
+ */
+export function markDataModified(timestamp?: string): string {
+  const ts = timestamp || new Date().toISOString();
+  try {
+    localStorage.setItem(LAST_DATA_MODIFIED_KEY, ts);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('spendwise_data_modified', { detail: { timestamp: ts } }));
+      window.dispatchEvent(new CustomEvent('spendwise_gsheet_sync_updated'));
+    }
+  } catch (e) {
+    console.error('Failed to save last data modified timestamp', e);
+  }
+  return ts;
+}
+
+export type GoogleSheetSyncState = 'disconnected' | 'synced' | 'pending';
+
+/**
+ * Returns whether a Google Sheet is currently connected.
+ */
+export function isGoogleSheetsConnected(): boolean {
+  try {
+    const config = getStoredGSheetConfig();
+    return Boolean(config && config.spreadsheetId);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Checks if all current SpendWise data is synced to Google Sheets.
+ * - Returns true (green circle) if connected and lastSyncedAt exists and is >= lastDataModifiedAt.
+ * - Returns false (yellow circle) if there is new data to be synced or no sync has occurred.
+ */
+export function isGoogleSheetsSynced(latestItemTimestamp?: string | number): boolean {
+  try {
+    const config = getStoredGSheetConfig();
+    if (!config.spreadsheetId || !config.lastSyncedAt) {
+      return false;
+    }
+
+    const lastSyncedTime = new Date(config.lastSyncedAt).getTime();
+    if (isNaN(lastSyncedTime) || lastSyncedTime <= 0) {
+      return false;
+    }
+
+    const lastModifiedStr = getStoredLastDataModifiedAt();
+    if (lastModifiedStr) {
+      const lastModifiedTime = new Date(lastModifiedStr).getTime();
+      if (!isNaN(lastModifiedTime) && lastModifiedTime > lastSyncedTime) {
+        return false;
+      }
+    }
+
+    if (latestItemTimestamp) {
+      const itemTime = typeof latestItemTimestamp === 'number' ? latestItemTimestamp : new Date(latestItemTimestamp).getTime();
+      if (!isNaN(itemTime) && itemTime > lastSyncedTime) {
+        return false;
+      }
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Gets the current Google Sheets sync status:
+ * - 'disconnected': No Google Sheet is connected. No circle indicator should be shown.
+ * - 'synced': Google Sheet connected and all data is up-to-date (Green circle).
+ * - 'pending': Google Sheet connected and there are unsynced changes (Yellow circle).
+ */
+export function getGoogleSheetSyncStatus(): GoogleSheetSyncState {
+  try {
+    const config = getStoredGSheetConfig();
+    if (!config || !config.spreadsheetId) {
+      return 'disconnected';
+    }
+    return isGoogleSheetsSynced() ? 'synced' : 'pending';
+  } catch {
+    return 'disconnected';
   }
 }
 
@@ -107,16 +212,39 @@ export function getCachedGSheetToken(): string | null {
   return null;
 }
 
-// Request access token from user via Google Identity Services popup
+// Request access token from user via Firebase Google Auth (preferred) or Google Identity Services
 export async function requestGoogleOAuthToken(): Promise<string> {
-  return new Promise((resolve, reject) => {
-    // Check if we already have a valid token
-    const existing = getCachedGSheetToken();
-    if (existing) {
-      resolve(existing);
-      return;
-    }
+  // Check if we already have a valid token
+  const existing = getCachedGSheetToken();
+  if (existing) {
+    return existing;
+  }
 
+  try {
+    const token = await requestGoogleWorkspaceToken();
+    if (token) {
+      cachedAccessToken = token;
+      tokenExpiresAt = Date.now() + 3600 * 1000;
+      return token;
+    }
+  } catch (firebaseErr: any) {
+    console.warn('Firebase Auth token flow error/fallback:', firebaseErr);
+    // If popup was closed intentionally by user
+    if (firebaseErr?.code === 'auth/popup-closed-by-user' || firebaseErr?.message?.includes('popup-closed-by-user')) {
+      throw new Error('Google authorization popup was closed before completing sign-in.');
+    }
+    // If popup blocked
+    if (firebaseErr?.code === 'auth/popup-blocked') {
+      throw new Error('The authorization popup was blocked by your browser. Please allow popups for this site and try again.');
+    }
+    // If Firebase succeeds or gives other error, rethrow informative message
+    if (firebaseErr?.code?.startsWith('auth/')) {
+      throw new Error(`Google Sheets authorization error: ${firebaseErr.message || firebaseErr.code}`);
+    }
+  }
+
+  // Fallback to Google Identity Services if needed
+  return new Promise((resolve, reject) => {
     if (typeof window === 'undefined') {
       reject(new Error('Window not available'));
       return;
@@ -124,7 +252,6 @@ export async function requestGoogleOAuthToken(): Promise<string> {
 
     const checkGisReady = () => {
       if (!window.google?.accounts?.oauth2) {
-        // Load GIS script dynamically if not present
         const scriptId = 'google-gsi-client-script';
         if (!document.getElementById(scriptId)) {
           const script = document.createElement('script');
@@ -145,10 +272,9 @@ export async function requestGoogleOAuthToken(): Promise<string> {
 
     const initClient = () => {
       try {
-        // Use user's configured Google OAuth Client ID
         const clientId = 
           import.meta.env.VITE_GOOGLE_CLIENT_ID || 
-          '582951335862-ligh4200cq1m4l8rt7u1p4ssg0ilon27.apps.googleusercontent.com';
+          '473262432159-emgnhdceo12kk1hv63ea859ekg7jtvbh.apps.googleusercontent.com';
 
         tokenClientInstance = window.google.accounts.oauth2.initTokenClient({
           client_id: clientId,
@@ -168,7 +294,7 @@ export async function requestGoogleOAuthToken(): Promise<string> {
             }
           },
           error_callback: (error: any) => {
-            reject(new Error(error.message || 'OAuth popup closed or failed'));
+            reject(new Error(error.message || 'Google sign-in popup was closed or cancelled'));
           }
         });
 

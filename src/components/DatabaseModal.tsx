@@ -24,6 +24,7 @@ import {
   getOrCreateSpendwiseSpreadsheet,
   syncAllDataToGoogleSheets,
   pullDataFromGoogleSheets,
+  isGoogleSheetsSynced,
   GoogleSheetsSyncConfig
 } from '../lib/googleSheetsService';
 
@@ -179,6 +180,13 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({
         onRestoreFromSheets(sheetData);
       }
 
+      const updatedConfig = {
+        ...gsheetConfig,
+        lastSyncedAt: new Date().toISOString()
+      };
+      setGsheetConfig(updatedConfig);
+      saveStoredGSheetConfig(updatedConfig);
+
       setGsheetStatusMessage({
         type: 'success',
         text: `Restored ${sheetData.transactions?.length || 0} transactions and ${sheetData.accounts?.length || 0} accounts.`
@@ -297,19 +305,39 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({
               </button>
             </div>
 
-            {/* Google Sheets Status Link */}
+            {/* Google Sheets Status Link & Sync State */}
             {gsheetConfig.spreadsheetUrl && (
-              <div className="text-[11px] flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-                <span className="text-slate-500">Spreadsheet:</span>
-                <a 
-                  href={gsheetConfig.spreadsheetUrl} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="text-emerald-600 hover:underline inline-flex items-center gap-1 font-semibold"
-                >
-                  Open in Google Sheets
-                  <ExternalLink className="w-3 h-3" />
-                </a>
+              <div className="space-y-1.5">
+                <div className="text-[11px] flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                  <span className="text-slate-500">Spreadsheet:</span>
+                  <a 
+                    href={gsheetConfig.spreadsheetUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-emerald-600 hover:underline inline-flex items-center gap-1 font-semibold"
+                  >
+                    Open in Google Sheets
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+
+                <div className={`text-[11px] flex items-center justify-between py-1.5 px-2.5 rounded-lg border ${
+                  isGoogleSheetsSynced()
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                    : 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+                }`}>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full ${isGoogleSheetsSynced() ? 'bg-emerald-500' : 'bg-amber-400'}`} />
+                    <span className="font-semibold">
+                      {isGoogleSheetsSynced() ? 'All data is synced (Green circle)' : 'New data to be synced (Yellow circle)'}
+                    </span>
+                  </div>
+                  {gsheetConfig.lastSyncedAt && (
+                    <span className="text-[10px] opacity-75">
+                      {new Date(gsheetConfig.lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
+                </div>
               </div>
             )}
 
