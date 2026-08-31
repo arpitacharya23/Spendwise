@@ -1,4 +1,4 @@
-import React, { useRef, useMemo, useEffect } from 'react';
+import React, { useRef, useMemo, useEffect, useState } from 'react';
 import { 
   Plus, 
   MessageSquare, 
@@ -9,10 +9,8 @@ import {
   Check, 
   Edit2, 
   Trash2, 
-  ArrowUp, 
   ArrowDown, 
   Users2, 
-  Info, 
   ChevronLeft, 
   Sparkles, 
   CheckCircle2, 
@@ -77,6 +75,7 @@ export const GroupChatPane: React.FC<GroupChatPaneProps> = ({
 }) => {
   const activityContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [isScrolledUp, setIsScrolledUp] = useState(false);
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
     if (messagesEndRef.current) {
@@ -89,10 +88,19 @@ export const GroupChatPane: React.FC<GroupChatPaneProps> = ({
     }
   };
 
+  const handleScroll = () => {
+    if (!activityContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = activityContainerRef.current;
+    // Show scroll-to-bottom button only when user has scrolled up away from the bottom
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    setIsScrolledUp(distanceFromBottom > 120);
+  };
+
   // Scroll to bottom on initial load and group switch
   useEffect(() => {
     const timer = setTimeout(() => {
       scrollToBottom('auto');
+      setIsScrolledUp(false);
     }, 60);
     return () => clearTimeout(timer);
   }, [activeGroup?.id]);
@@ -204,30 +212,18 @@ export const GroupChatPane: React.FC<GroupChatPaneProps> = ({
             <span className="hidden sm:inline">Add Expense</span>
             <span className="sm:hidden">Expense</span>
           </button>
-
-          {/* Toggle Right Details Pane Button */}
-          <button
-            onClick={onToggleRightPane}
-            id="btn-toggle-group-details"
-            className={`p-2 rounded-xl border transition cursor-pointer flex items-center justify-center ${
-              isRightPaneOpen
-                ? 'bg-blue-50 border-blue-300 text-blue-700 shadow-2xs'
-                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-            }`}
-            title="Toggle Group Members & Info (Right Pane)"
-          >
-            <Info className="w-4 h-4" />
-          </button>
         </div>
       </div>
 
-      {/* Activity Timeline Scroll Container */}
-      <div
-        ref={activityContainerRef}
-        id="activity-flow-scroll-container"
-        className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent bg-slate-50/50"
-        tabIndex={0}
-      >
+      {/* Activity Timeline Scroll Container Wrapper */}
+      <div className="relative flex-1 min-h-0 flex flex-col">
+        <div
+          ref={activityContainerRef}
+          onScroll={handleScroll}
+          id="activity-flow-scroll-container"
+          className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent bg-slate-50/50"
+          tabIndex={0}
+        >
         <div className="w-full max-w-4xl mx-auto space-y-6">
           {/* Empty Conversation / Event Stream */}
           {flowItems.length === 0 ? (
@@ -481,35 +477,23 @@ export const GroupChatPane: React.FC<GroupChatPaneProps> = ({
         </div>
       </div>
 
+        {/* Floating Scroll to Bottom Button (only visible when scrolled up) */}
+        {isScrolledUp && (
+          <button
+            type="button"
+            onClick={() => scrollToBottom('smooth')}
+            className="absolute right-6 bottom-4 z-20 p-2.5 bg-white text-slate-700 hover:text-blue-600 rounded-full shadow-lg border border-slate-200/90 transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer flex items-center justify-center group"
+            title="Scroll to bottom"
+            aria-label="Scroll to bottom"
+          >
+            <ArrowDown className="w-4 h-4 text-slate-600 group-hover:text-blue-600 transition-colors" />
+          </button>
+        )}
+      </div>
+
       {/* WhatsApp Style Bottom Action & Input Bar */}
       <div className="p-3 bg-white border-t border-slate-200/90 shadow-xs flex items-center justify-between gap-3 flex-shrink-0">
         <div className="flex items-center gap-2">
-          {/* Scroll to Top / Bottom helper buttons */}
-          {flowItems.length > 3 && (
-            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
-              <button
-                type="button"
-                onClick={() => {
-                  activityContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-                className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-white rounded-lg transition cursor-pointer shadow-2xs"
-                title="Scroll to Top"
-              >
-                <ArrowUp className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  scrollToBottom('smooth');
-                }}
-                className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-white rounded-lg transition cursor-pointer shadow-2xs"
-                title="Scroll to Bottom"
-              >
-                <ArrowDown className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
-
           <button
             onClick={onOpenSettleModal}
             className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/80 rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer shadow-2xs"

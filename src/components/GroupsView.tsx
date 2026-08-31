@@ -113,7 +113,7 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
 
   // Responsive / View state
   const [mobileView, setMobileView] = useState<'list' | 'chat'>('list');
-  const [isRightPaneOpen, setIsRightPaneOpen] = useState<boolean>(true);
+  const [isRightPaneOpen, setIsRightPaneOpen] = useState<boolean>(false);
 
   // Modals state
   const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] = useState(false);
