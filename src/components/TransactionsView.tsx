@@ -62,6 +62,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   onDeleteTransaction,
 }) => {
   // Search & Filter State
+  const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedType, setSelectedType] = useState<string>('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -86,6 +87,12 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
 
   // Sort State
   const [sortBy, setSortBy] = useState<string>('date-desc');
+
+  // Pagination / Infinite Scroll State (50 initially, +20 on scroll down)
+  const INITIAL_COUNT = 50;
+  const LOAD_INCREMENT = 20;
+  const [visibleCount, setVisibleCount] = useState<number>(INITIAL_COUNT);
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
 
   // UI state
   const [isAdvancedFiltersOpen, setIsAdvancedFiltersOpen] = useState(false);
@@ -462,8 +469,22 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
     }
   };
 
+  // Search Handlers
+  const handleSearchSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setSearchTerm(searchInput.trim());
+    setVisibleCount(INITIAL_COUNT);
+  };
+
+  const handleClearSearch = () => {
+    setSearchInput('');
+    setSearchTerm('');
+    setVisibleCount(INITIAL_COUNT);
+  };
+
   // Clear All Filters
   const handleClearAllFilters = () => {
+    setSearchInput('');
     setSearchTerm('');
     setSelectedType('all');
     setSelectedCategory('all');
@@ -480,6 +501,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
     setShowSharedEditAccounts(true);
     setShowSharedViewAccounts(true);
     setAccountSharingFilter('all');
+    setVisibleCount(INITIAL_COUNT);
   };
 
   // Active filters count
@@ -661,7 +683,58 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
 
   const netFilteredAmount = totalFilteredInflow - totalFilteredOutflow;
 
-  // Group filtered transactions by dates for date-categorized presentation
+  // Reset visible pagination when filters or sort change
+  useEffect(() => {
+    setVisibleCount(INITIAL_COUNT);
+  }, [
+    searchTerm, 
+    selectedType, 
+    selectedCategory, 
+    selectedAccount, 
+    selectedGroup, 
+    selectedLoan, 
+    startDate, 
+    endDate, 
+    minAmount, 
+    maxAmount, 
+    sortBy, 
+    showPersonalAccounts, 
+    showSharedEditAccounts, 
+    showSharedViewAccounts
+  ]);
+
+  // Sliced transactions currently visible (starts at 50, increments by 20 on scroll)
+  const visibleTransactions = useMemo(() => {
+    return filteredTransactions.slice(0, visibleCount);
+  }, [filteredTransactions, visibleCount]);
+
+  // Infinite Scroll IntersectionObserver: Automatically load next 20 when user scrolls down
+  useEffect(() => {
+    const sentinel = loadMoreSentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const firstEntry = entries[0];
+        if (firstEntry && firstEntry.isIntersecting) {
+          setVisibleCount((prev) => {
+            if (prev < filteredTransactions.length) {
+              return Math.min(prev + LOAD_INCREMENT, filteredTransactions.length);
+            }
+            return prev;
+          });
+        }
+      },
+      { root: null, rootMargin: '300px', threshold: 0.05 }
+    );
+
+    observer.observe(sentinel);
+    return () => {
+      observer.disconnect();
+    };
+  }, [filteredTransactions.length]);
+
+  // Group visible transactions by dates for date-categorized presentation
   const dateCategorizedTransactions = useMemo(() => {
     const groupsList: {
       dateKey: string;
@@ -675,7 +748,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
 
     const dateMap = new Map<string, Transaction[]>();
 
-    filteredTransactions.forEach(tx => {
+    visibleTransactions.forEach(tx => {
       const dKey = tx.date ? tx.date.split('T')[0] : 'Unknown Date';
       if (!dateMap.has(dKey)) {
         dateMap.set(dKey, []);
@@ -740,7 +813,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
     });
 
     return groupsList;
-  }, [filteredTransactions]);
+  }, [visibleTransactions]);
 
   // Export CSV Handler
   const handleExportCSV = () => {
@@ -809,6 +882,11 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
           <div className="text-xl font-extrabold text-slate-900 mt-0.5">
             {filteredTransactions.length} <span className="text-xs font-normal text-slate-700">/ {transactions.length}</span>
           </div>
+          {filteredTransactions.length > visibleCount && (
+            <span className="text-[10px] text-blue-600 font-semibold mt-0.5 block">
+              Showing first {visibleCount} (scroll for more)
+            </span>
+          )}
         </div>
 
         <div className="group bg-white rounded-2xl p-4 border border-slate-200 shadow-xs hover:shadow-sm transition">
@@ -836,90 +914,104 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
       {/* Primary Filter Control Bar - Sticky below main header during scroll */}
       <div className="sticky top-[61px] sm:top-[65px] z-20 bg-slate-50 pt-3 pb-1 -mt-3">
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-4">
-          {/* Row 1: Search, Type, Category, Advanced Toggle, Reset */}
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-          {/* Search Box */}
-          <div className="md:col-span-4 relative">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Search by title, notes, account..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
-            />
-            {searchTerm && (
-              <button
-                onClick={() => setSearchTerm('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-
-          {/* Type Filter */}
-          <div className="md:col-span-3">
-            <select
-              value={selectedType}
-              onChange={(e) => setSelectedType(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-            >
-              <option value="all">All Types</option>
-              <option value="expense">Expense</option>
-              <option value="income">Income</option>
-              <option value="emi_payment">Loan EMI Repayment</option>
-              <option value="transfer">Account Transfer</option>
-              <option value="settlement">Split / Settlement</option>
-            </select>
-          </div>
-
-          {/* Category Filter */}
-          <div className="md:col-span-3">
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-            >
-              <option value="all">All Categories</option>
-              {categories.map((cat) => (
-                <option key={cat.id} value={cat.id}>
-                  {cat.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Advanced Filter Toggle & Reset */}
-          <div className="md:col-span-2 flex items-center justify-end gap-2">
-            <button
-              onClick={() => setIsAdvancedFiltersOpen(!isAdvancedFiltersOpen)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition border ${
-                isAdvancedFiltersOpen || activeFiltersCount > 0
-                  ? 'bg-blue-50 text-blue-700 border-blue-200'
-                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              <SlidersHorizontal className="w-3.5 h-3.5" />
-              <span>Filters</span>
-              {activeFiltersCount > 0 && (
-                <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-bold">
-                  {activeFiltersCount}
-                </span>
+          {/* Row 1: Search Input, Type, Category, Filters Toggle & Reset, and Rightmost Search Button */}
+          <form onSubmit={handleSearchSubmit} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-3 items-center">
+            {/* Search Box */}
+            <div className="md:col-span-4 relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search title, notes, account, group..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+              />
+              {searchInput && (
+                <button
+                  type="button"
+                  onClick={handleClearSearch}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  title="Clear search input"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
               )}
-            </button>
+            </div>
 
-            {activeFiltersCount > 0 && (
-              <button
-                onClick={handleClearAllFilters}
-                className="p-2 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-xl border border-slate-200 transition"
-                title="Reset all filters"
+            {/* Type Filter */}
+            <div className="md:col-span-2">
+              <select
+                value={selectedType}
+                onChange={(e) => setSelectedType(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
+                <option value="all">All Types</option>
+                <option value="expense">Expense</option>
+                <option value="income">Income</option>
+                <option value="emi_payment">Loan EMI Repayment</option>
+                <option value="transfer">Account Transfer</option>
+                <option value="settlement">Split / Settlement</option>
+              </select>
+            </div>
+
+            {/* Category Filter */}
+            <div className="md:col-span-2">
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              >
+                <option value="all">All Categories</option>
+                {categories.map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Right Group: Filters Toggle, Reset, and Search Button grouped together */}
+            <div className="md:col-span-4 flex items-center justify-start md:justify-end gap-2">
+              {activeFiltersCount > 0 && (
+                <button
+                  type="button"
+                  onClick={handleClearAllFilters}
+                  className="p-2 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-xl border border-slate-200 transition cursor-pointer flex-shrink-0"
+                  title="Reset all filters"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setIsAdvancedFiltersOpen(!isAdvancedFiltersOpen)}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition border cursor-pointer flex-shrink-0 ${
+                  isAdvancedFiltersOpen || activeFiltersCount > 0
+                    ? 'bg-blue-50 text-blue-700 border-blue-200'
+                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                <span>Filters</span>
+                {activeFiltersCount > 0 && (
+                  <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-bold">
+                    {activeFiltersCount}
+                  </span>
+                )}
               </button>
-            )}
-          </div>
-        </div>
+
+              <button
+                type="submit"
+                id="btn-search-transactions"
+                className="flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-2xs active:scale-95 cursor-pointer flex-shrink-0"
+                title="Search all related transactions"
+              >
+                <Search className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>Search</span>
+              </button>
+            </div>
+          </form>
 
         {/* Collapsible Advanced Filters Tray */}
         {isAdvancedFiltersOpen && (
@@ -1166,7 +1258,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
             {searchTerm && (
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-medium">
                 Search: "{searchTerm}"
-                <button onClick={() => setSearchTerm('')}><X className="w-3 h-3 hover:text-blue-900" /></button>
+                <button onClick={handleClearSearch} title="Clear search filter"><X className="w-3 h-3 hover:text-blue-900" /></button>
               </span>
             )}
 
@@ -1435,6 +1527,33 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                 </div>
               </div>
             ))}
+
+            {/* Infinite Scroll Sentinel & Load More Status Indicator */}
+            <div ref={loadMoreSentinelRef} className="p-4 flex flex-col items-center justify-center text-center border-t border-slate-100 bg-slate-50/60">
+              {visibleCount < filteredTransactions.length ? (
+                <div className="flex flex-col sm:flex-row items-center gap-3 py-1">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+                    <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                    <span>Loading next {Math.min(LOAD_INCREMENT, filteredTransactions.length - visibleCount)} transactions...</span>
+                  </div>
+                  <span className="text-[11px] text-slate-500 font-medium">
+                    (Showing {visibleCount} of {filteredTransactions.length})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setVisibleCount(prev => Math.min(prev + LOAD_INCREMENT, filteredTransactions.length))}
+                    className="px-3 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-bold text-blue-600 shadow-2xs transition cursor-pointer"
+                  >
+                    Load More (+20)
+                  </button>
+                </div>
+              ) : (
+                <div className="text-xs font-medium text-slate-500 py-1 flex items-center gap-1.5">
+                  <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
+                  <span>Showing all {filteredTransactions.length} transactions</span>
+                </div>
+              )}
+            </div>
           </div>
         ) : (
           <div className="p-12 text-center">
