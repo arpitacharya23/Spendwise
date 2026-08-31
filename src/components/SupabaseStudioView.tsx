@@ -15,7 +15,7 @@ import {
   Terminal,
   Activity
 } from 'lucide-react';
-import { SUPABASE_SETUP_SQL } from '../lib/supabaseSchemaSql';
+import { SUPABASE_SETUP_SQL, SUPABASE_USER_SCOPING_MIGRATION_SQL } from '../lib/supabaseSchemaSql';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../lib/supabase';
 import { checkSupabaseHealth, seedSupabaseInitialData, SupabaseHealthStatus } from '../lib/supabaseService';
 import { UserProfile } from '../types';
@@ -27,6 +27,8 @@ interface SupabaseStudioViewProps {
 
 export const SupabaseStudioView: React.FC<SupabaseStudioViewProps> = ({ user, onRefreshData }) => {
   const [copied, setCopied] = useState(false);
+  const [copiedMigration, setCopiedMigration] = useState(false);
+  const [sqlMode, setSqlMode] = useState<'migration' | 'full'>('migration');
   const [activeTab, setActiveTab] = useState<'sql' | 'tables' | 'connection'>('sql');
   const [healthStatus, setHealthStatus] = useState<SupabaseHealthStatus | null>(null);
   const [isChecking, setIsChecking] = useState(false);
@@ -87,18 +89,18 @@ export const SupabaseStudioView: React.FC<SupabaseStudioViewProps> = ({ user, on
     },
     {
       name: 'categories',
-      desc: 'Customizable expense and income categories with icons, color codes, and monthly limits.',
-      columns: ['id (text pk)', 'name (text)', 'icon (text)', 'color (text)', 'type (text)', 'budget_limit (numeric)'],
+      desc: 'User-scoped & template expense and income categories with icons, color codes, and limits.',
+      columns: ['id (text pk)', 'user_email (text fk)', 'is_global (bool)', 'name (text)', 'icon (text)', 'color (text)', 'type (text)', 'budget_limit (numeric)'],
     },
     {
       name: 'transactions',
       desc: 'Universal ledger for expenses, incomes, bank-to-bank transfers, and Splitwise debt settlements.',
-      columns: ['id (text pk)', 'date (text)', 'title (text)', 'amount (numeric)', 'type (text)', 'account_id (text fk)', 'category_id (text fk)', 'split_details (jsonb)'],
+      columns: ['id (text pk)', 'date (text)', 'title (text)', 'amount (numeric)', 'type (text)', 'account_id (text fk)', 'category_id (text fk)', 'split_details (jsonb)', 'created_by (text)'],
     },
     {
       name: 'loans',
       desc: 'Loans & EMI repayment schedule with tenure tracking, remaining balance, and linked accounts.',
-      columns: ['id (text pk)', 'name (text)', 'lender (text)', 'total_principal (numeric)', 'remaining_principal (numeric)', 'monthly_emi (numeric)', 'paid_tenure_months (int)', 'status (text)'],
+      columns: ['id (text pk)', 'user_email (text)', 'name (text)', 'lender (text)', 'total_principal (numeric)', 'remaining_principal (numeric)', 'monthly_emi (numeric)', 'paid_tenure_months (int)', 'status (text)'],
     },
     {
       name: 'groups',
@@ -113,19 +115,29 @@ export const SupabaseStudioView: React.FC<SupabaseStudioViewProps> = ({ user, on
     {
       name: 'friends',
       desc: 'Direct peer-to-peer friend relationships with running net balances (owed / to-receive).',
-      columns: ['id (text pk)', 'name (text)', 'email (text)', 'phone (text)', 'net_balance (numeric)', 'avatar_color (text)', 'last_activity (text)'],
+      columns: ['id (text pk)', 'user_email (text)', 'name (text)', 'email (text)', 'phone (text)', 'net_balance (numeric)', 'avatar_color (text)', 'last_activity (text)'],
     },
     {
       name: 'rules',
-      desc: 'Automation rules engine with keyword matching, category assignments, and account routing.',
-      columns: ['id (text pk)', 'name (text)', 'keywords (jsonb)', 'match_type (text)', 'category_id (text fk)', 'account_id (text fk)', 'is_active (bool)'],
+      desc: 'User-scoped and global automation rules engine with keyword matching and category routing.',
+      columns: ['id (text pk)', 'user_email (text fk)', 'is_global (bool)', 'name (text)', 'keyword (text)', 'keywords (jsonb)', 'match_type (text)', 'category_id (text fk)', 'is_enabled (bool)'],
     },
     {
       name: 'budgets',
-      desc: 'Monthly budgets set per category and month/year for granular spending targets.',
+      desc: 'User-scoped monthly and yearly budgets set per category for granular spending targets.',
       columns: ['id (text pk)', 'user_email (text)', 'category_id (text fk)', 'month (int)', 'year (int)', 'limit_amount (numeric)'],
     }
   ];
+
+  const handleCopyMigrationSql = () => {
+    navigator.clipboard.writeText(SUPABASE_USER_SCOPING_MIGRATION_SQL);
+    setCopiedMigration(true);
+    setTimeout(() => setCopiedMigration(false), 2500);
+  };
+
+  const displayedSql = sqlMode === 'migration' ? SUPABASE_USER_SCOPING_MIGRATION_SQL : SUPABASE_SETUP_SQL;
+  const currentCopied = sqlMode === 'migration' ? copiedMigration : copied;
+  const handleCurrentCopy = sqlMode === 'migration' ? handleCopyMigrationSql : handleCopySql;
 
   return (
     <div className="space-y-6">
@@ -244,11 +256,51 @@ export const SupabaseStudioView: React.FC<SupabaseStudioViewProps> = ({ user, on
       {/* TAB 1: SQL Script View */}
       {activeTab === 'sql' && (
         <div className="space-y-4">
+          {/* SQL Mode Switcher */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-2.5 rounded-2xl border border-slate-200 shadow-2xs">
+            <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl">
+              <button
+                onClick={() => setSqlMode('migration')}
+                className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition cursor-pointer ${
+                  sqlMode === 'migration'
+                    ? 'bg-white text-emerald-700 shadow-xs border border-slate-200'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                1. Incremental Migration SQL (Existing DB)
+              </button>
+              <button
+                onClick={() => setSqlMode('full')}
+                className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition cursor-pointer ${
+                  sqlMode === 'full'
+                    ? 'bg-white text-blue-700 shadow-xs border border-slate-200'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                2. Full Schema SQL (Fresh Install)
+              </button>
+            </div>
+
+            <button
+              onClick={handleCurrentCopy}
+              className={`flex items-center gap-2 px-4 py-2 text-white rounded-xl text-xs font-bold shadow-xs transition active:scale-95 cursor-pointer ${
+                sqlMode === 'migration' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-slate-900 hover:bg-slate-800'
+              }`}
+            >
+              {currentCopied ? <Check className="w-4 h-4 text-white" /> : <Copy className="w-4 h-4" />}
+              <span>{currentCopied ? 'SQL Copied!' : (sqlMode === 'migration' ? 'Copy Migration SQL' : 'Copy Full SQL')}</span>
+            </button>
+          </div>
+
           <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
               <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-blue-600" />
-                <span>How to execute this script in Supabase:</span>
+                <span>
+                  {sqlMode === 'migration' 
+                    ? 'Execute User Scoping Migration SQL (Adds user_email & is_global):' 
+                    : 'Execute Full Schema Setup in Supabase:'}
+                </span>
               </h3>
               <ol className="text-xs text-slate-600 mt-2 space-y-1 list-decimal list-inside leading-relaxed">
                 <li>Log in to your <strong>Supabase Dashboard</strong> at <a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer" className="text-blue-600 font-semibold hover:underline inline-flex items-center gap-0.5">supabase.com <ExternalLink className="w-3 h-3 inline" /></a></li>
@@ -257,11 +309,11 @@ export const SupabaseStudioView: React.FC<SupabaseStudioViewProps> = ({ user, on
               </ol>
             </div>
             <button
-              onClick={handleCopySql}
+              onClick={handleCurrentCopy}
               className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow transition flex-shrink-0 cursor-pointer"
             >
-              {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-              <span>{copied ? 'Copied to Clipboard!' : 'Copy SQL'}</span>
+              {currentCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+              <span>{currentCopied ? 'Copied to Clipboard!' : 'Copy SQL'}</span>
             </button>
           </div>
 
@@ -273,18 +325,20 @@ export const SupabaseStudioView: React.FC<SupabaseStudioViewProps> = ({ user, on
                   <div className="w-2.5 h-2.5 rounded-full bg-amber-500/80"></div>
                   <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/80"></div>
                 </div>
-                <span className="font-mono text-slate-300 ml-2">supabase/schema.sql</span>
+                <span className="font-mono text-slate-300 ml-2">
+                  {sqlMode === 'migration' ? 'supabase/user_scoping_migration.sql' : 'supabase/schema.sql'}
+                </span>
               </div>
               <button
-                onClick={handleCopySql}
+                onClick={handleCurrentCopy}
                 className="text-[11px] font-semibold text-slate-300 hover:text-white flex items-center gap-1.5 cursor-pointer bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700"
               >
-                {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                <span>{copied ? 'Copied' : 'Copy'}</span>
+                {currentCopied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                <span>{currentCopied ? 'Copied' : 'Copy'}</span>
               </button>
             </div>
             <pre className="p-4 text-xs font-mono text-emerald-300/90 overflow-x-auto max-h-[500px] leading-relaxed select-all">
-              {SUPABASE_SETUP_SQL}
+              {displayedSql}
             </pre>
           </div>
         </div>

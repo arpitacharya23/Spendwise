@@ -156,6 +156,19 @@ export interface Category {
   color: string;
   type?: 'expense' | 'income' | 'all';
   budgetLimit?: number; // Optional monthly expense spending budget limit
+  userEmail?: string; // User email for account-specific category
+  isGlobal?: boolean; // True if universal template category
+}
+
+export interface Budget {
+  id: string;
+  userEmail: string;
+  categoryId: string;
+  month: number;
+  year: number;
+  limitAmount: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface UserProfile {
@@ -190,6 +203,8 @@ export interface TransactionRule {
   isEnabled: boolean;
   createdAt: string;
   matchCount?: number;
+  userEmail?: string; // Optional user email for account-specific rule
+  isGlobal?: boolean; // True if universal template rule
 }
 
 export type DashboardCardId = 

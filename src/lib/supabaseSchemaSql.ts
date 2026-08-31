@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS public.categories (
     color TEXT NOT NULL DEFAULT '#3B82F6',
     type TEXT NOT NULL DEFAULT 'expense',
     budget_limit NUMERIC DEFAULT NULL,
+    user_email TEXT DEFAULT NULL,
+    is_global BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -161,6 +163,8 @@ CREATE TABLE IF NOT EXISTS public.rules (
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
     match_count INTEGER NOT NULL DEFAULT 0,
+    user_email TEXT DEFAULT NULL,
+    is_global BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -198,6 +202,8 @@ ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS icon TEXT NOT NULL DEFAUL
 ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT '#3B82F6';
 ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'expense';
 ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS budget_limit NUMERIC DEFAULT NULL;
+ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS user_email TEXT DEFAULT NULL;
+ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS is_global BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
@@ -286,6 +292,8 @@ ALTER TABLE public.rules ADD COLUMN IF NOT EXISTS transaction_type TEXT DEFAULT 
 ALTER TABLE public.rules ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE public.rules ADD COLUMN IF NOT EXISTS is_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE public.rules ADD COLUMN IF NOT EXISTS match_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.rules ADD COLUMN IF NOT EXISTS user_email TEXT DEFAULT NULL;
+ALTER TABLE public.rules ADD COLUMN IF NOT EXISTS is_global BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE public.rules ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 ALTER TABLE public.rules ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
@@ -311,14 +319,16 @@ CREATE INDEX IF NOT EXISTS idx_group_logs_group ON public.group_activity_logs (g
 CREATE INDEX IF NOT EXISTS idx_accounts_owner ON public.accounts (owner_email);
 CREATE INDEX IF NOT EXISTS idx_loans_user ON public.loans (user_email);
 CREATE INDEX IF NOT EXISTS idx_friends_user ON public.friends (user_email);
+CREATE INDEX IF NOT EXISTS idx_rules_user ON public.rules (user_email);
 CREATE INDEX IF NOT EXISTS idx_rules_active ON public.rules (is_active);
+CREATE INDEX IF NOT EXISTS idx_categories_user ON public.categories (user_email);
 CREATE INDEX IF NOT EXISTS idx_budgets_user_period ON public.budgets (user_email, year, month);
 
 -- ==============================================================================
 -- 5. POSTGRESQL FUNCTIONS & TRIGGERS
 -- ==============================================================================
 
--- 5.1 Auto-update \`updated_at\` Timestamp Trigger Function
+-- 5.1 Auto-update updated_at Timestamp Trigger Function
 CREATE OR REPLACE FUNCTION public.handle_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -533,23 +543,68 @@ BEGIN
 END $$;
 
 -- ==============================================================================
--- 7. SEED DEFAULT UNIVERSAL CATEGORIES
+-- 7. SEED DEFAULT UNIVERSAL CATEGORIES & RULES (GLOBAL TEMPLATES)
 -- ==============================================================================
-INSERT INTO public.categories (id, name, icon, color, type, budget_limit)
+INSERT INTO public.categories (id, name, icon, color, type, budget_limit, is_global, user_email)
 VALUES 
-    ('cat-1', 'Food & Dining', 'Utensils', '#F97316', 'expense', 12000),
-    ('cat-2', 'Shopping & Electronics', 'ShoppingBag', '#8B5CF6', 'expense', 8000),
-    ('cat-3', 'Housing & Rent', 'Home', '#EC4899', 'expense', 20000),
-    ('cat-4', 'Transport & Fuel', 'Car', '#06B6D4', 'expense', 5000),
-    ('cat-5', 'Entertainment & Trips', 'Film', '#EAB308', 'expense', 4000),
-    ('cat-6', 'EMI & Loan Repayment', 'CreditCard', '#EF4444', 'expense', NULL),
-    ('cat-7', 'Utilities & Bills', 'Zap', '#10B981', 'expense', 3500),
-    ('cat-8', 'Salary & Invoicing', 'Briefcase', '#22C55E', 'income', NULL),
-    ('cat-9', 'Investments & Returns', 'TrendingUp', '#6366F1', 'income', NULL),
-    ('cat-10', 'Friend Settlement', 'Users', '#64748B', 'expense', NULL)
+    ('cat-1', 'Food & Dining', 'Utensils', '#F97316', 'expense', 12000, true, NULL),
+    ('cat-2', 'Shopping & Electronics', 'ShoppingBag', '#8B5CF6', 'expense', 8000, true, NULL),
+    ('cat-3', 'Housing & Rent', 'Home', '#EC4899', 'expense', 20000, true, NULL),
+    ('cat-4', 'Transport & Fuel', 'Car', '#06B6D4', 'expense', 5000, true, NULL),
+    ('cat-5', 'Entertainment & Trips', 'Film', '#EAB308', 'expense', 4000, true, NULL),
+    ('cat-6', 'EMI & Loan Repayment', 'CreditCard', '#EF4444', 'expense', NULL, true, NULL),
+    ('cat-7', 'Utilities & Bills', 'Zap', '#10B981', 'expense', 3500, true, NULL),
+    ('cat-8', 'Salary & Invoicing', 'Briefcase', '#22C55E', 'income', NULL, true, NULL),
+    ('cat-9', 'Investments & Returns', 'TrendingUp', '#6366F1', 'income', NULL, true, NULL),
+    ('cat-10', 'Friend Settlement', 'Users', '#64748B', 'expense', NULL, true, NULL)
 ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,
     icon = EXCLUDED.icon,
     color = EXCLUDED.color,
-    type = EXCLUDED.type;
+    type = EXCLUDED.type,
+    is_global = true;
+
+-- Seed default global rules template
+INSERT INTO public.rules (id, name, keyword, match_type, category_id, is_active, is_enabled, is_global, user_email)
+VALUES
+    ('rule-global-1', 'Coffee & Cafes', 'starbucks, cafe, coffee, barista, dunkin, costa, blue tokai, third wave', 'contains', 'cat-1', true, true, true, NULL),
+    ('rule-global-2', 'Rideshare & Taxis', 'uber, ola, lyft, grab, cab, taxi, rapido', 'contains', 'cat-4', true, true, true, NULL),
+    ('rule-global-3', 'Food Delivery & Restaurants', 'swiggy, zomato, doordash, mcdonalds, dominos, pizza, burger, dining, restaurant, subway', 'contains', 'cat-1', true, true, true, NULL),
+    ('rule-global-4', 'Online Shopping', 'amazon, flipkart, myntra, zara, ebay, ajio, meesho, target, walmart', 'contains', 'cat-2', true, true, true, NULL),
+    ('rule-global-5', 'Entertainment & Streaming', 'netflix, spotify, prime video, hotstar, youtube, cinema, pvr, inox, movies, steam, playstation', 'contains', 'cat-5', true, true, true, NULL),
+    ('rule-global-6', 'Groceries & Daily Essentials', 'grocery, blinkit, zepto, instamart, supermarket, bigbasket, nature basket, costco, traders joe', 'contains', 'cat-1', true, true, true, NULL),
+    ('rule-global-7', 'Fuel & Gas Stations', 'shell, petrol, diesel, fuel, chevron, bp, exxon, gas station, indian oil, hpcl, bharat petroleum', 'contains', 'cat-4', true, true, true, NULL),
+    ('rule-global-8', 'Salary & Earnings', 'salary, payroll, stipend, client payment, consulting fee, freelance payout, dividend', 'contains', 'cat-8', true, true, true, NULL),
+    ('rule-global-9', 'Housing & Rent', 'rent, maintenance, landlord, apartment, society dues', 'contains', 'cat-3', true, true, true, NULL)
+ON CONFLICT (id) DO NOTHING;
+`;
+
+export const SUPABASE_USER_SCOPING_MIGRATION_SQL = `-- ==============================================================================
+-- SPENDWISE - DELTA SQL MIGRATION: SCOPE CATEGORIES, RULES & BUDGETS PER USER
+-- ==============================================================================
+-- Run this in your Supabase SQL Editor if you already have existing tables.
+-- It safely adds user_email and is_global columns and indexes without data loss.
+
+-- 1. Add user_email and is_global to Categories table
+ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS user_email TEXT DEFAULT NULL;
+ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS is_global BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- 2. Add user_email and is_global to Rules table
+ALTER TABLE public.rules ADD COLUMN IF NOT EXISTS user_email TEXT DEFAULT NULL;
+ALTER TABLE public.rules ADD COLUMN IF NOT EXISTS is_global BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- 3. Ensure user_email column exists in Budgets table
+ALTER TABLE public.budgets ADD COLUMN IF NOT EXISTS user_email TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.budgets ADD COLUMN IF NOT EXISTS category_id TEXT REFERENCES public.categories(id) ON DELETE CASCADE;
+ALTER TABLE public.budgets ADD COLUMN IF NOT EXISTS month INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE public.budgets ADD COLUMN IF NOT EXISTS year INTEGER NOT NULL DEFAULT 2026;
+ALTER TABLE public.budgets ADD COLUMN IF NOT EXISTS limit_amount NUMERIC NOT NULL DEFAULT 0;
+
+-- 4. Create performance indexes for fast user-filtered queries
+CREATE INDEX IF NOT EXISTS idx_categories_user ON public.categories (user_email);
+CREATE INDEX IF NOT EXISTS idx_rules_user ON public.rules (user_email);
+CREATE INDEX IF NOT EXISTS idx_budgets_user_period ON public.budgets (user_email, year, month);
+
+-- 5. Mark initial seeded 10 categories as global templates
+UPDATE public.categories SET is_global = TRUE WHERE user_email IS NULL;
 `;

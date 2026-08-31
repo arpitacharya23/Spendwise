@@ -62,6 +62,12 @@ import {
   getSupabaseCategories, 
   saveSupabaseCategory, 
   deleteSupabaseCategory,
+  importGlobalCategoriesToUser,
+  getSupabaseRules,
+  saveSupabaseRule,
+  deleteSupabaseRule,
+  importGlobalRulesToUser,
+  saveSupabaseBudget,
   getSupabaseTransactions, 
   saveSupabaseTransaction, 
   deleteSupabaseTransaction,
@@ -197,13 +203,15 @@ export default function App() {
       const [
         sbProfile,
         sbCategories,
+        sbRules,
         sbTransactions,
         sbLoans,
         sbGroups,
         sbFriends
       ] = await Promise.all([
         getSupabaseProfile(targetEmail),
-        getSupabaseCategories(),
+        getSupabaseCategories(targetEmail),
+        getSupabaseRules(targetEmail),
         getSupabaseTransactions(targetEmail, accessibleAccountIds),
         getSupabaseLoans(targetEmail),
         getSupabaseGroups(targetEmail),
@@ -233,6 +241,10 @@ export default function App() {
       }
       if (sbCategories && sbCategories.length > 0) {
         setCategories(sbCategories);
+        connected = true;
+      }
+      if (sbRules && sbRules.length > 0) {
+        setRules(sbRules);
         connected = true;
       }
       if (sbTransactions !== null) {
@@ -1187,17 +1199,22 @@ export default function App() {
     deleteSupabaseTransaction(txId);
   };
 
-  // HANDLERS: Category Management
+  // HANDLERS: Category Management (User-Scoped)
   const handleAddCategory = (newCat: Category) => {
-    setCategories([...categories, newCat]);
-    saveSupabaseCategory(newCat);
+    const userScopedCat: Category = {
+      ...newCat,
+      userEmail: user.email,
+      isGlobal: false,
+    };
+    setCategories(prev => [...prev, userScopedCat]);
+    saveSupabaseCategory(userScopedCat, user.email);
   };
 
   const handleEditCategory = (categoryId: string, updatedData: Partial<Category>) => {
     setCategories(categories.map(c => {
       if (c.id === categoryId) {
-        const updated = { ...c, ...updatedData };
-        saveSupabaseCategory(updated);
+        const updated = { ...c, ...updatedData, userEmail: user.email, isGlobal: false };
+        saveSupabaseCategory(updated, user.email);
         return updated;
       }
       return c;
@@ -1216,29 +1233,42 @@ export default function App() {
       }));
     }
     setCategories(categories.filter(c => c.id !== categoryId));
-    deleteSupabaseCategory(categoryId);
+    deleteSupabaseCategory(categoryId, user.email);
   };
 
-  const handleResetCategories = () => {
-    setCategories(initialCategories);
-    for (const cat of initialCategories) {
-      saveSupabaseCategory(cat);
+  const handleResetCategories = async () => {
+    const imported = await importGlobalCategoriesToUser(user.email);
+    if (imported && imported.length > 0) {
+      setCategories(imported);
+    } else {
+      setCategories(initialCategories);
     }
   };
 
   const handleUpdateCategoryBudget = (categoryId: string, budgetLimit?: number) => {
     setCategories(categories.map(c => {
       if (c.id === categoryId) {
-        const updated = { ...c, budgetLimit };
-        saveSupabaseCategory(updated);
+        const updated = { ...c, budgetLimit, userEmail: user.email, isGlobal: false };
+        saveSupabaseCategory(updated, user.email);
         return updated;
       }
       return c;
     }));
+
+    if (budgetLimit !== undefined) {
+      const now = new Date();
+      saveSupabaseBudget({
+        userEmail: user.email,
+        categoryId,
+        month: now.getMonth() + 1,
+        year: now.getFullYear(),
+        limitAmount: budgetLimit,
+      });
+    }
   };
 
   // ========================================================
-  // HANDLERS: Rule Engine & Keyword Automation
+  // HANDLERS: Rule Engine & Keyword Automation (User-Scoped)
   // ========================================================
   const handleAddRule = (newRule: Omit<TransactionRule, 'id' | 'createdAt' | 'matchCount'>) => {
     const rule: TransactionRule = {
@@ -1246,36 +1276,73 @@ export default function App() {
       id: `rule-${Date.now().toString().slice(-6)}`,
       matchCount: 0,
       createdAt: new Date().toISOString(),
+      userEmail: user.email,
+      isGlobal: false,
     };
     setRules(prev => [rule, ...prev]);
+    saveSupabaseRule(rule, user.email);
   };
 
   const handleEditRule = (ruleId: string, updatedData: Partial<TransactionRule>) => {
-    setRules(prev => prev.map(r => r.id === ruleId ? { ...r, ...updatedData } : r));
+    setRules(prev => prev.map(r => {
+      if (r.id === ruleId) {
+        const updated = { ...r, ...updatedData, userEmail: user.email, isGlobal: false };
+        saveSupabaseRule(updated, user.email);
+        return updated;
+      }
+      return r;
+    }));
   };
 
   const handleDeleteRule = (ruleId: string) => {
     setRules(prev => prev.filter(r => r.id !== ruleId));
+    deleteSupabaseRule(ruleId, user.email);
   };
 
   const handleToggleRule = (ruleId: string) => {
-    setRules(prev => prev.map(r => r.id === ruleId ? { ...r, isEnabled: !r.isEnabled } : r));
+    setRules(prev => prev.map(r => {
+      if (r.id === ruleId) {
+        const updated = { ...r, isEnabled: !r.isEnabled, userEmail: user.email, isGlobal: false };
+        saveSupabaseRule(updated, user.email);
+        return updated;
+      }
+      return r;
+    }));
   };
 
   const handleIncrementRuleMatch = (ruleId: string) => {
-    setRules(prev => prev.map(r => r.id === ruleId ? { ...r, matchCount: (r.matchCount || 0) + 1 } : r));
+    setRules(prev => prev.map(r => {
+      if (r.id === ruleId) {
+        const updated = { ...r, matchCount: (r.matchCount || 0) + 1, userEmail: user.email, isGlobal: false };
+        saveSupabaseRule(updated, user.email);
+        return updated;
+      }
+      return r;
+    }));
   };
 
-  const handleResetDefaultRules = () => {
-    setRules(initialRules);
+  const handleResetDefaultRules = async () => {
+    const imported = await importGlobalRulesToUser(user.email);
+    if (imported && imported.length > 0) {
+      setRules(imported);
+    } else {
+      setRules(initialRules);
+    }
   };
 
   const handleImportRules = (importedRules: TransactionRule[], mode: 'append' | 'replace') => {
+    const userScopedRules = importedRules.map(r => ({
+      ...r,
+      userEmail: user.email,
+      isGlobal: false,
+    }));
+
     if (mode === 'replace') {
-      setRules(importedRules);
+      setRules(userScopedRules);
     } else {
-      setRules(prev => [...importedRules, ...prev]);
+      setRules(prev => [...userScopedRules, ...prev]);
     }
+    userScopedRules.forEach(r => saveSupabaseRule(r, user.email));
   };
 
   const handleApplyRulesToAllTransactions = () => {

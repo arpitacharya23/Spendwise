@@ -7,8 +7,12 @@ import {
   GroupActivityLog, 
   LoanEMI, 
   Transaction, 
-  UserProfile 
+  UserProfile,
+  TransactionRule,
+  Budget
 } from '../types';
+import { initialCategories } from '../data/initialData';
+import { initialRules } from '../data/initialRules';
 
 export interface SupabaseHealthStatus {
   connected: boolean;
@@ -320,56 +324,396 @@ export async function saveSupabaseProfile(
 }
 
 // -----------------------------------------------------------------------------
-// CATEGORIES
+// CATEGORIES (User/Account-Scoped & Global Templates)
 // -----------------------------------------------------------------------------
-export async function getSupabaseCategories(): Promise<Category[] | null> {
+export async function getSupabaseCategories(userEmail?: string): Promise<Category[] | null> {
   try {
-    const { data, error } = await supabase
+    const normEmail = (userEmail || '').trim().toLowerCase();
+
+    // 1. If userEmail is provided, check for user-specific categories
+    if (normEmail) {
+      const { data: userData, error: userError } = await supabase
+        .from('categories')
+        .select('*')
+        .eq('user_email', normEmail)
+        .order('id', { ascending: true });
+
+      if (!userError && userData && userData.length > 0) {
+        return userData.map((item: any) => ({
+          id: item.id,
+          name: item.name,
+          icon: item.icon || 'Utensils',
+          color: item.color || '#3B82F6',
+          type: item.type || 'expense',
+          budgetLimit: item.budget_limit ? Number(item.budget_limit) : undefined,
+          userEmail: item.user_email || normEmail,
+          isGlobal: false,
+        }));
+      }
+    }
+
+    // 2. Otherwise (or as default initial template), fetch universal/global categories
+    const { data: globalData, error: globalError } = await supabase
       .from('categories')
       .select('*')
+      .or(`is_global.eq.true,user_email.is.null`)
       .order('id', { ascending: true });
 
-    if (error || !data || data.length === 0) return null;
+    if (!globalError && globalData && globalData.length > 0) {
+      return globalData.map((item: any) => ({
+        id: item.id,
+        name: item.name,
+        icon: item.icon || 'Utensils',
+        color: item.color || '#3B82F6',
+        type: item.type || 'expense',
+        budgetLimit: item.budget_limit ? Number(item.budget_limit) : undefined,
+        userEmail: undefined,
+        isGlobal: true,
+      }));
+    }
 
-    return data.map((item: any) => ({
-      id: item.id,
-      name: item.name,
-      icon: item.icon,
-      color: item.color,
-      type: item.type,
-      budgetLimit: item.budget_limit ? Number(item.budget_limit) : undefined,
-    }));
-  } catch {
+    return null;
+  } catch (err) {
+    console.warn('getSupabaseCategories warning:', err);
     return null;
   }
 }
 
-export async function saveSupabaseCategory(category: Category): Promise<boolean> {
+export async function saveSupabaseCategory(category: Category, userEmail?: string): Promise<boolean> {
   try {
+    const targetEmail = (userEmail || category.userEmail || '').trim().toLowerCase() || null;
+    const isGlobal = category.isGlobal && !targetEmail;
+
+    const payload: any = {
+      id: category.id,
+      name: category.name,
+      icon: category.icon,
+      color: category.color,
+      type: category.type ?? 'expense',
+      budget_limit: category.budgetLimit ?? null,
+      user_email: targetEmail,
+      is_global: isGlobal,
+      updated_at: new Date().toISOString(),
+    };
+
     const { error } = await supabase
       .from('categories')
-      .upsert({
-        id: category.id,
-        name: category.name,
-        icon: category.icon,
-        color: category.color,
-        type: category.type ?? null,
-        budget_limit: category.budgetLimit ?? null,
-      });
+      .upsert(payload);
+
     return !error;
-  } catch {
+  } catch (err) {
+    console.error('saveSupabaseCategory error:', err);
     return false;
   }
 }
 
-export async function deleteSupabaseCategory(categoryId: string): Promise<boolean> {
+export async function deleteSupabaseCategory(categoryId: string, userEmail?: string): Promise<boolean> {
   try {
-    const { error } = await supabase
-      .from('categories')
-      .delete()
-      .eq('id', categoryId);
+    let query = supabase.from('categories').delete().eq('id', categoryId);
+    if (userEmail) {
+      query = query.eq('user_email', userEmail.trim().toLowerCase());
+    }
+    const { error } = await query;
     return !error;
-  } catch {
+  } catch (err) {
+    console.error('deleteSupabaseCategory error:', err);
+    return false;
+  }
+}
+
+export async function importGlobalCategoriesToUser(userEmail: string, templateCategories?: Category[]): Promise<Category[] | null> {
+  const normEmail = userEmail.trim().toLowerCase();
+  if (!normEmail) return null;
+
+  try {
+    let sourceCategories = templateCategories;
+    if (!sourceCategories || sourceCategories.length === 0) {
+      const { data } = await supabase
+        .from('categories')
+        .select('*')
+        .or(`is_global.eq.true,user_email.is.null`);
+
+      if (data && data.length > 0) {
+        sourceCategories = data.map((item: any) => ({
+          id: item.id,
+          name: item.name,
+          icon: item.icon,
+          color: item.color,
+          type: item.type,
+          budgetLimit: item.budget_limit ? Number(item.budget_limit) : undefined,
+        }));
+      }
+    }
+
+    if (!sourceCategories || sourceCategories.length === 0) {
+      sourceCategories = initialCategories;
+    }
+
+    const importedCategories: Category[] = sourceCategories.map((c, index) => ({
+      ...c,
+      id: `cat-${normEmail.replace(/[^a-z0-9]/g, '_')}-${index + 1}`,
+      userEmail: normEmail,
+      isGlobal: false,
+    }));
+
+    for (const cat of importedCategories) {
+      await saveSupabaseCategory(cat, normEmail);
+    }
+
+    return importedCategories;
+  } catch (err) {
+    console.error('importGlobalCategoriesToUser error:', err);
+    return null;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// RULES (User/Account-Scoped & Global Templates)
+// -----------------------------------------------------------------------------
+export async function getSupabaseRules(userEmail?: string): Promise<TransactionRule[] | null> {
+  try {
+    const normEmail = (userEmail || '').trim().toLowerCase();
+
+    // 1. Fetch user-specific rules if user email is present
+    if (normEmail) {
+      const { data: userData, error: userError } = await supabase
+        .from('rules')
+        .select('*')
+        .eq('user_email', normEmail)
+        .order('created_at', { ascending: true });
+
+      if (!userError && userData && userData.length > 0) {
+        return userData.map((r: any) => ({
+          id: r.id,
+          name: r.name,
+          keyword: r.keyword || (Array.isArray(r.keywords) ? r.keywords.join(', ') : ''),
+          matchType: r.match_type || 'contains',
+          categoryId: r.category_id || '',
+          accountId: r.account_id || undefined,
+          transactionType: r.transaction_type || undefined,
+          isEnabled: r.is_enabled ?? r.is_active ?? true,
+          createdAt: r.created_at || new Date().toISOString(),
+          matchCount: Number(r.match_count) || 0,
+          userEmail: r.user_email || normEmail,
+          isGlobal: false,
+        }));
+      }
+    }
+
+    // 2. Fetch global template rules
+    const { data: globalData, error: globalError } = await supabase
+      .from('rules')
+      .select('*')
+      .or(`is_global.eq.true,user_email.is.null`)
+      .order('created_at', { ascending: true });
+
+    if (!globalError && globalData && globalData.length > 0) {
+      return globalData.map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        keyword: r.keyword || (Array.isArray(r.keywords) ? r.keywords.join(', ') : ''),
+        matchType: r.match_type || 'contains',
+        categoryId: r.category_id || '',
+        accountId: r.account_id || undefined,
+        transactionType: r.transaction_type || undefined,
+        isEnabled: r.is_enabled ?? r.is_active ?? true,
+        createdAt: r.created_at || new Date().toISOString(),
+        matchCount: Number(r.match_count) || 0,
+        userEmail: undefined,
+        isGlobal: true,
+      }));
+    }
+
+    return null;
+  } catch (err) {
+    console.warn('getSupabaseRules warning:', err);
+    return null;
+  }
+}
+
+export async function saveSupabaseRule(rule: TransactionRule, userEmail?: string): Promise<boolean> {
+  try {
+    const targetEmail = (userEmail || rule.userEmail || '').trim().toLowerCase() || null;
+    const isGlobal = rule.isGlobal && !targetEmail;
+
+    const keywordsArray = (rule.keyword || '')
+      .split(',')
+      .map(k => k.trim())
+      .filter(Boolean);
+
+    const payload: any = {
+      id: rule.id,
+      name: rule.name,
+      keyword: rule.keyword,
+      keywords: keywordsArray,
+      match_type: rule.matchType || 'contains',
+      category_id: rule.categoryId || null,
+      account_id: rule.accountId || null,
+      transaction_type: rule.transactionType || null,
+      is_active: rule.isEnabled,
+      is_enabled: rule.isEnabled,
+      match_count: rule.matchCount || 0,
+      user_email: targetEmail,
+      is_global: isGlobal,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase
+      .from('rules')
+      .upsert(payload);
+
+    return !error;
+  } catch (err) {
+    console.error('saveSupabaseRule error:', err);
+    return false;
+  }
+}
+
+export async function deleteSupabaseRule(ruleId: string, userEmail?: string): Promise<boolean> {
+  try {
+    let query = supabase.from('rules').delete().eq('id', ruleId);
+    if (userEmail) {
+      query = query.eq('user_email', userEmail.trim().toLowerCase());
+    }
+    const { error } = await query;
+    return !error;
+  } catch (err) {
+    console.error('deleteSupabaseRule error:', err);
+    return false;
+  }
+}
+
+export async function importGlobalRulesToUser(userEmail: string, templateRules?: TransactionRule[]): Promise<TransactionRule[] | null> {
+  const normEmail = userEmail.trim().toLowerCase();
+  if (!normEmail) return null;
+
+  try {
+    let sourceRules = templateRules;
+    if (!sourceRules || sourceRules.length === 0) {
+      const { data } = await supabase
+        .from('rules')
+        .select('*')
+        .or(`is_global.eq.true,user_email.is.null`);
+
+      if (data && data.length > 0) {
+        sourceRules = data.map((r: any) => ({
+          id: r.id,
+          name: r.name,
+          keyword: r.keyword || (Array.isArray(r.keywords) ? r.keywords.join(', ') : ''),
+          matchType: r.match_type || 'contains',
+          categoryId: r.category_id || '',
+          accountId: r.account_id || undefined,
+          transactionType: r.transaction_type || undefined,
+          isEnabled: r.is_enabled ?? r.is_active ?? true,
+          createdAt: r.created_at || new Date().toISOString(),
+          matchCount: 0,
+        }));
+      }
+    }
+
+    if (!sourceRules || sourceRules.length === 0) {
+      sourceRules = initialRules;
+    }
+
+    const importedRules: TransactionRule[] = sourceRules.map((r, index) => ({
+      ...r,
+      id: `rule-${normEmail.replace(/[^a-z0-9]/g, '_')}-${index + 1}`,
+      userEmail: normEmail,
+      isGlobal: false,
+    }));
+
+    for (const rule of importedRules) {
+      await saveSupabaseRule(rule, normEmail);
+    }
+
+    return importedRules;
+  } catch (err) {
+    console.error('importGlobalRulesToUser error:', err);
+    return null;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// BUDGETS (User & Month Scoped)
+// -----------------------------------------------------------------------------
+export async function getSupabaseBudgets(userEmail: string, year?: number, month?: number): Promise<Budget[] | null> {
+  const normEmail = userEmail.trim().toLowerCase();
+  if (!normEmail) return null;
+
+  try {
+    let query = supabase
+      .from('budgets')
+      .select('*')
+      .eq('user_email', normEmail);
+
+    if (year !== undefined) {
+      query = query.eq('year', year);
+    }
+    if (month !== undefined) {
+      query = query.eq('month', month);
+    }
+
+    const { data, error } = await query;
+    if (error || !data) return null;
+
+    return data.map((b: any) => ({
+      id: b.id,
+      userEmail: b.user_email,
+      categoryId: b.category_id,
+      month: Number(b.month),
+      year: Number(b.year),
+      limitAmount: Number(b.limit_amount) || 0,
+      createdAt: b.created_at,
+      updatedAt: b.updated_at,
+    }));
+  } catch (err) {
+    console.error('getSupabaseBudgets error:', err);
+    return null;
+  }
+}
+
+export async function saveSupabaseBudget(budget: {
+  id?: string;
+  userEmail: string;
+  categoryId: string;
+  month: number;
+  year: number;
+  limitAmount: number;
+}): Promise<boolean> {
+  const normEmail = budget.userEmail.trim().toLowerCase();
+  if (!normEmail) return false;
+
+  try {
+    const budgetId = budget.id || `bgt-${normEmail.replace(/[^a-z0-9]/g, '_')}-${budget.categoryId}-${budget.year}-${budget.month}`;
+    const { error } = await supabase
+      .from('budgets')
+      .upsert({
+        id: budgetId,
+        user_email: normEmail,
+        category_id: budget.categoryId,
+        month: budget.month,
+        year: budget.year,
+        limit_amount: budget.limitAmount,
+        updated_at: new Date().toISOString(),
+      });
+
+    return !error;
+  } catch (err) {
+    console.error('saveSupabaseBudget error:', err);
+    return false;
+  }
+}
+
+export async function deleteSupabaseBudget(budgetId: string, userEmail?: string): Promise<boolean> {
+  try {
+    let query = supabase.from('budgets').delete().eq('id', budgetId);
+    if (userEmail) {
+      query = query.eq('user_email', userEmail.trim().toLowerCase());
+    }
+    const { error } = await query;
+    return !error;
+  } catch (err) {
+    console.error('deleteSupabaseBudget error:', err);
     return false;
   }
 }
