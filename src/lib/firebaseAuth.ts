@@ -9,7 +9,7 @@ const firebaseConfig = {
   storageBucket: "gen-lang-client-0759268782.firebasestorage.app",
   messagingSenderId: "473262432159",
   measurementId: "",
-  oAuthClientId: "473262432159-emgnhdceo12kk1hv63ea859ekg7jtvbh.apps.googleusercontent.com"
+  oAuthClientId: "582951335862-ligh4200cq1m4l8rt7u1p4ssg0ilon27.apps.googleusercontent.com"
 };
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();

@@ -212,7 +212,12 @@ export function getCachedGSheetToken(): string | null {
   return null;
 }
 
-// Request access token from user via Firebase Google Auth (preferred) or Google Identity Services
+export function setManualGSheetToken(token: string) {
+  cachedAccessToken = token.trim();
+  tokenExpiresAt = Date.now() + 86400 * 1000;
+}
+
+// Request access token from user via Google Identity Services or Firebase Google Auth
 export async function requestGoogleOAuthToken(): Promise<string> {
   // Check if we already have a valid token
   const existing = getCachedGSheetToken();
@@ -220,92 +225,97 @@ export async function requestGoogleOAuthToken(): Promise<string> {
     return existing;
   }
 
-  try {
-    const token = await requestGoogleWorkspaceToken();
-    if (token) {
-      cachedAccessToken = token;
-      tokenExpiresAt = Date.now() + 3600 * 1000;
-      return token;
-    }
-  } catch (firebaseErr: any) {
-    console.warn('Firebase Auth token flow error/fallback:', firebaseErr);
-    // If popup was closed intentionally by user
-    if (firebaseErr?.code === 'auth/popup-closed-by-user' || firebaseErr?.message?.includes('popup-closed-by-user')) {
-      throw new Error('Google authorization popup was closed before completing sign-in.');
-    }
-    // If popup blocked
-    if (firebaseErr?.code === 'auth/popup-blocked') {
-      throw new Error('The authorization popup was blocked by your browser. Please allow popups for this site and try again.');
-    }
-    // If Firebase succeeds or gives other error, rethrow informative message
-    if (firebaseErr?.code?.startsWith('auth/')) {
-      throw new Error(`Google Sheets authorization error: ${firebaseErr.message || firebaseErr.code}`);
-    }
-  }
+  // 1. Try Google Identity Services (GIS) first as it operates directly in all domains/previews
+  const tryGisToken = (): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      if (typeof window === 'undefined') {
+        reject(new Error('Window is not available'));
+        return;
+      }
 
-  // Fallback to Google Identity Services if needed
-  return new Promise((resolve, reject) => {
-    if (typeof window === 'undefined') {
-      reject(new Error('Window not available'));
-      return;
-    }
+      const clientId = 
+        import.meta.env.VITE_GOOGLE_CLIENT_ID || 
+        '582951335862-ligh4200cq1m4l8rt7u1p4ssg0ilon27.apps.googleusercontent.com';
 
-    const checkGisReady = () => {
+      const launchGis = () => {
+        try {
+          tokenClientInstance = window.google.accounts.oauth2.initTokenClient({
+            client_id: clientId,
+            scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file',
+            callback: (tokenResponse: any) => {
+              if (tokenResponse.error) {
+                reject(new Error(tokenResponse.error_description || tokenResponse.error));
+                return;
+              }
+              if (tokenResponse.access_token) {
+                cachedAccessToken = tokenResponse.access_token;
+                const expiresIn = parseInt(tokenResponse.expires_in || '3600', 10);
+                tokenExpiresAt = Date.now() + expiresIn * 1000;
+                resolve(tokenResponse.access_token);
+              } else {
+                reject(new Error('No access token received from Google'));
+              }
+            },
+            error_callback: (error: any) => {
+              reject(new Error(error.message || 'Google authorization was cancelled or closed.'));
+            }
+          });
+
+          tokenClientInstance.requestAccessToken({ prompt: '' });
+        } catch (err: any) {
+          reject(err);
+        }
+      };
+
       if (!window.google?.accounts?.oauth2) {
         const scriptId = 'google-gsi-client-script';
-        if (!document.getElementById(scriptId)) {
-          const script = document.createElement('script');
+        let script = document.getElementById(scriptId) as HTMLScriptElement;
+        if (!script) {
+          script = document.createElement('script');
           script.id = scriptId;
           script.src = 'https://accounts.google.com/gsi/client';
           script.async = true;
           script.defer = true;
-          script.onload = () => initClient();
+          script.onload = () => launchGis();
           script.onerror = () => reject(new Error('Failed to load Google Identity Services SDK'));
           document.head.appendChild(script);
         } else {
-          setTimeout(checkGisReady, 200);
+          setTimeout(launchGis, 250);
         }
       } else {
-        initClient();
+        launchGis();
       }
-    };
+    });
+  };
 
-    const initClient = () => {
-      try {
-        const clientId = 
-          import.meta.env.VITE_GOOGLE_CLIENT_ID || 
-          '582951335862-ligh4200cq1m4l8rt7u1p4ssg0ilon27.apps.googleusercontent.com';
+  try {
+    return await tryGisToken();
+  } catch (gisError: any) {
+    console.warn('GIS Token attempt failed:', gisError);
 
-        tokenClientInstance = window.google.accounts.oauth2.initTokenClient({
-          client_id: clientId,
-          scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file',
-          callback: (tokenResponse: any) => {
-            if (tokenResponse.error) {
-              reject(new Error(tokenResponse.error_description || tokenResponse.error));
-              return;
-            }
-            if (tokenResponse.access_token) {
-              cachedAccessToken = tokenResponse.access_token;
-              const expiresIn = parseInt(tokenResponse.expires_in || '3600', 10);
-              tokenExpiresAt = Date.now() + expiresIn * 1000;
-              resolve(tokenResponse.access_token);
-            } else {
-              reject(new Error('No access token received from Google'));
-            }
-          },
-          error_callback: (error: any) => {
-            reject(new Error(error.message || 'Google sign-in popup was closed or cancelled'));
-          }
-        });
-
-        tokenClientInstance.requestAccessToken({ prompt: '' });
-      } catch (err: any) {
-        reject(err);
+    // If GIS failed, attempt Firebase Auth only if available
+    try {
+      const token = await requestGoogleWorkspaceToken();
+      if (token) {
+        cachedAccessToken = token;
+        tokenExpiresAt = Date.now() + 3600 * 1000;
+        return token;
       }
-    };
+    } catch (firebaseErr: any) {
+      console.warn('Firebase Auth token flow error:', firebaseErr);
+      if (firebaseErr?.code === 'auth/popup-closed-by-user' || firebaseErr?.message?.includes('popup-closed-by-user')) {
+        throw new Error('Google authorization popup was closed before completing sign-in.');
+      }
+      if (firebaseErr?.code === 'auth/popup-blocked') {
+        throw new Error('The authorization popup was blocked by your browser. Please allow popups for this site and try again.');
+      }
+      if (firebaseErr?.code === 'auth/unauthorized-domain' || firebaseErr?.message?.includes('unauthorized-domain')) {
+        throw new Error(gisError?.message || 'Google authorization requires enabling popups or signing in through Google Identity Services.');
+      }
+    }
 
-    checkGisReady();
-  });
+    throw new Error(gisError?.message || 'Google authorization could not be completed. Please allow popups or retry.');
+  }
 }
 
 // Find existing "SpendWise Financial Ledger" spreadsheet in user's Google Drive or create a new one
