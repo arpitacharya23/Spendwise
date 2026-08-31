@@ -275,91 +275,88 @@ export const RulesView: React.FC<RulesViewProps> = ({
         </div>
       )}
 
-      {/* Top Action Toolbar */}
-      <div className="flex items-center justify-end gap-2 flex-wrap">
-        {/* Export CSV Button */}
-        <button
-          onClick={handleExportCSV}
-          id="btn-export-rules-csv"
-          className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold shadow-2xs transition active:scale-95 cursor-pointer"
-          title="Download rules as a CSV spreadsheet"
-        >
-          <Download className="w-3.5 h-3.5 text-slate-600" />
-          <span>Export CSV</span>
-        </button>
-
-        {/* Import CSV Button */}
-        <button
-          onClick={() => setIsImportModalOpen(true)}
-          id="btn-import-rules-csv"
-          className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold shadow-2xs transition active:scale-95 cursor-pointer"
-          title="Import rules from a CSV file"
-        >
-          <Upload className="w-3.5 h-3.5 text-blue-600" />
-          <span>Import CSV</span>
-        </button>
-
-        <button
-          onClick={handleReset}
-          className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer"
-          title="Restore default pre-configured rules"
-        >
-          <RotateCcw className="w-3.5 h-3.5" />
-          <span>Reset Defaults</span>
-        </button>
-
-        <button
-          onClick={handleRunBulkRules}
-          id="btn-run-all-rules"
-          className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-bold shadow-xs transition active:scale-95 cursor-pointer"
-          title="Scan and apply rules retroactively to all transactions"
-        >
-          <Zap className="w-4 h-4 text-emerald-600" />
-          <span>Apply to All Transactions</span>
-        </button>
-
-        <button
-          onClick={handleOpenAddModal}
-          id="btn-add-rule-main"
-          className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition active:scale-95 cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add Rule</span>
-        </button>
-      </div>
-
-      {/* KPI Metric Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
-          <span className="text-[11px] font-bold uppercase text-slate-600">Total Rules</span>
-          <div className="text-xl font-extrabold text-slate-900 mt-0.5">
-            {rules.length}
+      {/* Top Metrics Strip & Action Buttons on the Same Line */}
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">
+        {/* KPI Metric Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 flex-1">
+          <div className="bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total Rules</span>
+            <div className="text-sm font-extrabold text-slate-900 mt-0.5 leading-tight">
+              {rules.length}
+            </div>
           </div>
-          <span className="text-[10px] text-slate-600 font-medium">Configured keywords</span>
+
+          <div className="bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Active</span>
+            <div className="text-sm font-extrabold text-emerald-700 mt-0.5 leading-tight">
+              {activeCount}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700">Matched</span>
+            <div className="text-sm font-extrabold text-blue-700 mt-0.5 leading-tight">
+              {totalMatches}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700">Categories</span>
+            <div className="text-sm font-extrabold text-indigo-700 mt-0.5 leading-tight">
+              {new Set(rules.map(r => r.categoryId)).size}
+            </div>
+          </div>
         </div>
 
-        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
-          <span className="text-[11px] font-bold uppercase text-emerald-700">Active Rules</span>
-          <div className="text-xl font-extrabold text-emerald-700 mt-0.5">
-            {activeCount}
-          </div>
-          <span className="text-[10px] text-emerald-700/80 font-medium">Auto-categorizing new records</span>
-        </div>
+        {/* Action Toolbar */}
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end flex-shrink-0">
+          <button
+            onClick={handleExportCSV}
+            id="btn-export-rules-csv"
+            className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold shadow-2xs transition active:scale-95 cursor-pointer"
+            title="Download rules as a CSV spreadsheet"
+          >
+            <Download className="w-3.5 h-3.5 text-slate-600" />
+            <span>Export CSV</span>
+          </button>
 
-        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
-          <span className="text-[11px] font-bold uppercase text-blue-700">Total Matched</span>
-          <div className="text-xl font-extrabold text-blue-700 mt-0.5">
-            {totalMatches}
-          </div>
-          <span className="text-[10px] text-blue-600/80 font-medium">Transactions automated</span>
-        </div>
+          <button
+            onClick={() => setIsImportModalOpen(true)}
+            id="btn-import-rules-csv"
+            className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold shadow-2xs transition active:scale-95 cursor-pointer"
+            title="Import rules from a CSV file"
+          >
+            <Upload className="w-3.5 h-3.5 text-blue-600" />
+            <span>Import CSV</span>
+          </button>
 
-        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
-          <span className="text-[11px] font-bold uppercase text-indigo-700">Categories Linked</span>
-          <div className="text-xl font-extrabold text-indigo-700 mt-0.5">
-            {new Set(rules.map(r => r.categoryId)).size}
-          </div>
-          <span className="text-[10px] text-indigo-600/80 font-medium">Distinct targets</span>
+          <button
+            onClick={handleReset}
+            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            title="Restore default pre-configured rules"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Defaults</span>
+          </button>
+
+          <button
+            onClick={handleRunBulkRules}
+            id="btn-run-all-rules"
+            className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-bold shadow-2xs transition active:scale-95 cursor-pointer"
+            title="Scan and apply rules retroactively to all transactions"
+          >
+            <Zap className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Apply to All</span>
+          </button>
+
+          <button
+            onClick={handleOpenAddModal}
+            id="btn-add-rule-main"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-2xs transition active:scale-95 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Rule</span>
+          </button>
         </div>
       </div>
 

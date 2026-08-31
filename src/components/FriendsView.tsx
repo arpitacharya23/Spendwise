@@ -315,18 +315,6 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
 
   return (
     <div className="space-y-6 pb-12">
-      {/* Top Action Toolbar */}
-      <div className="flex items-center justify-end gap-2.5 flex-wrap">
-        <button
-          onClick={() => handleOpenAddModal('')}
-          id="btn-find-friend"
-          className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow-2xs transition active:scale-95 cursor-pointer"
-        >
-          <UserPlus className="w-4 h-4" />
-          <span>Find Friend (Mobile / Email)</span>
-        </button>
-      </div>
-
       {/* Success Notification Alert */}
       {addSuccessMessage && (
         <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between text-xs text-emerald-800 animate-fadeIn">
@@ -343,30 +331,35 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
         </div>
       )}
 
-      {/* Summary KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="group bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs hover:shadow-xs transition flex items-center justify-between">
-          <div>
-            <span className="text-xs font-bold uppercase text-slate-500">You are owed by friends</span>
-            <div className="text-2xl font-extrabold text-emerald-700 mt-1 privacy-value">
+      {/* Top Metrics Strip & Action Button on the Same Line */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+        {/* KPI Metric Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 flex-1">
+          <div className="group bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">You are owed</span>
+            <div className="text-sm font-extrabold text-emerald-700 mt-0.5 leading-tight privacy-value">
               +{user.currency}{totalOwedToMe.toLocaleString('en-IN')}
             </div>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
-            <ArrowDownLeft className="w-6 h-6" />
-          </div>
-        </div>
 
-        <div className="group bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs hover:shadow-xs transition flex items-center justify-between">
-          <div>
-            <span className="text-xs font-bold uppercase text-slate-500">You owe friends</span>
-            <div className="text-2xl font-extrabold text-rose-700 mt-1 privacy-value">
+          <div className="group bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">You owe friends</span>
+            <div className="text-sm font-extrabold text-rose-700 mt-0.5 leading-tight privacy-value">
               -{user.currency}{totalIOwe.toLocaleString('en-IN')}
             </div>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold">
-            <ArrowUpRight className="w-6 h-6" />
-          </div>
+        </div>
+
+        {/* Action Button */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={() => handleOpenAddModal('')}
+            id="btn-find-friend"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow-2xs transition active:scale-95 cursor-pointer"
+          >
+            <UserPlus className="w-4 h-4" />
+            <span>Find Friend</span>
+          </button>
         </div>
       </div>
 

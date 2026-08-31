@@ -349,83 +349,86 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         />
       ) : (
         <>
-          {/* Top Month Selector Controls */}
-          <div className="flex items-center justify-end gap-2 flex-wrap">
-            <button
-              onClick={handleJumpToToday}
-              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition shadow-xs"
-            >
-              Today
-            </button>
+          {/* Top Metrics Strip & Action Buttons on the Same Line */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
+            {/* 4 Monthly Financial Metric Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 flex-1">
+              <div className="group bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Month Income</span>
+                <div className="text-sm font-extrabold text-emerald-700 mt-0.5 leading-tight privacy-value">
+                  +{user.currency}{monthlySummary.totalIncome.toLocaleString('en-IN')}
+                </div>
+              </div>
 
-            <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 shadow-xs">
+              <div className="group bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Month Expense</span>
+                <div className="text-sm font-extrabold text-rose-700 mt-0.5 leading-tight privacy-value">
+                  -{user.currency}{monthlySummary.totalExpense.toLocaleString('en-IN')}
+                </div>
+              </div>
+
+              <div className="group bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Net Month Flow</span>
+                <div className={`text-sm font-extrabold mt-0.5 leading-tight privacy-value ${monthlySummary.net >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                  {monthlySummary.net >= 0 ? '+' : ''}{user.currency}{monthlySummary.net.toLocaleString('en-IN')}
+                </div>
+              </div>
+
+              <div className="group bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Spending Days</span>
+                <div className="text-sm font-extrabold text-slate-900 mt-0.5 leading-tight">
+                  {monthlySummary.activeDays} <span className="text-[11px] font-normal text-slate-500">days</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Top Month Selector Controls & Actions */}
+            <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
               <button
-                onClick={handlePrevMonth}
-                className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition"
-                title="Previous Month"
+                onClick={handleJumpToToday}
+                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition shadow-2xs cursor-pointer"
               >
-                <ChevronLeft className="w-4 h-4" />
+                Today
               </button>
-              <span className="px-3 text-xs font-bold text-slate-800 min-w-[120px] text-center">
-                {monthName} {currentYear}
-              </span>
+
+              <div className="flex items-center bg-white border border-slate-200 rounded-xl p-0.5 shadow-2xs">
+                <button
+                  onClick={handlePrevMonth}
+                  className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                  title="Previous Month"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+                <span className="px-2.5 text-xs font-bold text-slate-800 min-w-[105px] text-center">
+                  {monthName} {currentYear}
+                </span>
+                <button
+                  onClick={handleNextMonth}
+                  className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                  title="Next Month"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {onOpenCategories && (
+                <button
+                  onClick={onOpenCategories}
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                  title="Manage categories and colors"
+                >
+                  <Palette className="w-3.5 h-3.5 text-slate-600" />
+                  <span>Palette</span>
+                </button>
+              )}
+
               <button
-                onClick={handleNextMonth}
-                className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition"
-                title="Next Month"
+                onClick={() => onOpenAddExpense(selectedDate || todayStr)}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-2xs transition active:scale-95 cursor-pointer"
               >
-                <ChevronRight className="w-4 h-4" />
+                <Plus className="w-4 h-4" />
+                <span>Add Entry</span>
               </button>
-            </div>
-
-            {onOpenCategories && (
-              <button
-                onClick={onOpenCategories}
-                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition flex items-center gap-1.5"
-                title="Manage categories and colors"
-              >
-                <Palette className="w-3.5 h-3.5 text-slate-600" />
-                <span>Palette</span>
-              </button>
-            )}
-
-            <button
-              onClick={() => onOpenAddExpense(selectedDate || todayStr)}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition active:scale-95 ml-1"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add Entry</span>
-            </button>
-          </div>
-
-          {/* Monthly KPI Strip */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="group bg-white rounded-2xl p-4 border border-slate-200 shadow-xs hover:shadow-sm transition">
-              <span className="text-[11px] font-bold uppercase text-slate-600">Month Total Income</span>
-              <div className="text-xl font-extrabold text-emerald-700 mt-0.5 privacy-value">
-                +{user.currency}{monthlySummary.totalIncome.toLocaleString('en-IN')}
-              </div>
-            </div>
-
-            <div className="group bg-white rounded-2xl p-4 border border-slate-200 shadow-xs hover:shadow-sm transition">
-              <span className="text-[11px] font-bold uppercase text-slate-600">Month Total Expense</span>
-              <div className="text-xl font-extrabold text-rose-700 mt-0.5 privacy-value">
-                -{user.currency}{monthlySummary.totalExpense.toLocaleString('en-IN')}
-              </div>
-            </div>
-
-            <div className="group bg-white rounded-2xl p-4 border border-slate-200 shadow-xs hover:shadow-sm transition">
-              <span className="text-[11px] font-bold uppercase text-slate-600">Net Month Flow</span>
-              <div className={`text-xl font-extrabold mt-0.5 privacy-value ${monthlySummary.net >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                {monthlySummary.net >= 0 ? '+' : ''}{user.currency}{monthlySummary.net.toLocaleString('en-IN')}
-              </div>
-            </div>
-
-            <div className="group bg-white rounded-2xl p-4 border border-slate-200 shadow-xs hover:shadow-sm transition">
-              <span className="text-[11px] font-bold uppercase text-slate-600">Active Spending Days</span>
-              <div className="text-xl font-extrabold text-slate-900 mt-0.5">
-                {monthlySummary.activeDays} <span className="text-xs font-normal text-slate-600">days</span>
-              </div>
             </div>
           </div>
 

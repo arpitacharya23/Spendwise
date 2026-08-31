@@ -794,44 +794,38 @@ export const GroupsView: React.FC<GroupsViewProps> = ({
 
   return (
     <div className="space-y-4 pb-8">
-      {/* Unified Top Toolbar: Metrics Cards + Action Buttons */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 flex-wrap">
-        {/* Left Side: Compact Metric Cards (same button height) */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Total Shared Spend Pill */}
-          <div className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-200/90 rounded-xl text-xs shadow-2xs">
-            <Receipt className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
-            <span className="text-slate-500 font-medium">Shared Spend:</span>
-            <span className="font-bold text-slate-900 privacy-value">
+      {/* Unified Top Metrics Strip & Action Button */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+        {/* Metric Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 flex-1">
+          <div className="group bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Shared Spend</span>
+            <div className="text-sm font-extrabold text-slate-900 mt-0.5 leading-tight privacy-value">
               {user.currency}{Math.round(overallGroupStats.totalSpendAll).toLocaleString('en-IN')}
-            </span>
+            </div>
           </div>
 
-          {/* You are Owed Pill */}
-          <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50/80 border border-emerald-200 text-emerald-900 rounded-xl text-xs shadow-2xs">
-            <TrendingUp className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
-            <span className="text-emerald-700 font-medium">You are owed:</span>
-            <span className="font-bold text-emerald-800 privacy-value">
+          <div className="group bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">You are owed</span>
+            <div className="text-sm font-extrabold text-emerald-700 mt-0.5 leading-tight privacy-value">
               +{user.currency}{Math.round(overallGroupStats.totalYouAreOwed).toLocaleString('en-IN')}
-            </span>
+            </div>
           </div>
 
-          {/* You Owe Pill */}
-          <div className="flex items-center gap-2 px-3 py-2 bg-rose-50/80 border border-rose-200 text-rose-900 rounded-xl text-xs shadow-2xs">
-            <TrendingDown className="w-3.5 h-3.5 text-rose-600 flex-shrink-0" />
-            <span className="text-rose-700 font-medium">You owe:</span>
-            <span className="font-bold text-rose-800 privacy-value">
+          <div className="group bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">You owe</span>
+            <div className="text-sm font-extrabold text-rose-700 mt-0.5 leading-tight privacy-value">
               -{user.currency}{Math.round(overallGroupStats.totalYouOwe).toLocaleString('en-IN')}
-            </span>
+            </div>
           </div>
         </div>
 
-        {/* Right Side: Action Buttons */}
-        <div className="flex items-center gap-2 flex-wrap">
+        {/* Action Button */}
+        <div className="flex items-center gap-2 flex-shrink-0">
           <button
             onClick={() => setIsCreateGroupModalOpen(true)}
             id="btn-top-create-group"
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-2xs active:scale-95 cursor-pointer"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-2xs active:scale-95 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>New Group</span>

@@ -109,6 +109,10 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   const bankAccounts = accounts.filter(a => a.type === 'bank' || a.type === 'cash');
   const creditCards = accounts.filter(a => a.type === 'credit_card');
 
+  // Computed summary metrics
+  const totalLiquidBalance = bankAccounts.reduce((sum, a) => sum + (a.balance || 0), 0);
+  const totalCardDue = creditCards.reduce((sum, a) => sum + (a.dueAmount || 0), 0);
+
   // Accounts available for transacting / transfers / paying bills
   const transferableBankAccounts = bankAccounts.filter(a => getAccountAccess(a, user.email).canTransact);
   const payableBankAccounts = bankAccounts.filter(a => getAccountAccess(a, user.email).canTransact);
@@ -248,33 +252,60 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
   return (
     <div className="space-y-6 pb-12">
-      {/* Top Action Toolbar */}
-      <div className="flex items-center justify-end gap-3 flex-wrap">
-        <button
-          onClick={() => setIsTransferModalOpen(true)}
-          className="flex items-center gap-2 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-semibold text-sm transition"
-        >
-          <ArrowRightLeft className="w-4 h-4 text-blue-600" />
-          <span>Transfer Funds</span>
-        </button>
+      {/* Top Metrics Strip & Action Buttons on the Same Line */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+        {/* KPI Metric Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 flex-1">
+          <div className="group bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Bank & Cash</span>
+            <div className="text-sm font-extrabold text-slate-900 mt-0.5 leading-tight privacy-value">
+              {user.currency}{totalLiquidBalance.toLocaleString('en-IN')}
+            </div>
+          </div>
 
-        <button
-          onClick={() => setIsAddModalOpen(true)}
-          id="btn-add-account"
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm shadow-sm transition active:scale-95"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add Account / Card</span>
-        </button>
+          <div className="group bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Cards Due</span>
+            <div className="text-sm font-extrabold text-rose-700 mt-0.5 leading-tight privacy-value">
+              {user.currency}{totalCardDue.toLocaleString('en-IN')}
+            </div>
+          </div>
+
+          <div className="group bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center col-span-2 sm:col-span-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Accounts</span>
+            <div className="text-sm font-extrabold text-slate-900 mt-0.5 leading-tight">
+              {accounts.length} <span className="text-[11px] font-normal text-slate-500">active</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={() => setIsTransferModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 rounded-xl font-semibold text-xs transition shadow-2xs cursor-pointer"
+          >
+            <ArrowRightLeft className="w-3.5 h-3.5 text-blue-600" />
+            <span>Transfer</span>
+          </button>
+
+          <button
+            onClick={() => setIsAddModalOpen(true)}
+            id="btn-add-account"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow-2xs transition active:scale-95 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Account / Card</span>
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
       <div className="flex items-center space-x-2 border-b border-slate-200 pb-2">
         <button
           onClick={() => setActiveTab('all')}
-          className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${
+          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
             activeTab === 'all'
-              ? 'bg-slate-900 text-white shadow-sm'
+              ? 'bg-slate-900 text-white shadow-2xs'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
           }`}
         >
@@ -282,9 +313,9 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
         </button>
         <button
           onClick={() => setActiveTab('bank')}
-          className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${
+          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
             activeTab === 'bank'
-              ? 'bg-slate-900 text-white shadow-sm'
+              ? 'bg-slate-900 text-white shadow-2xs'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
           }`}
         >
@@ -292,9 +323,9 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
         </button>
         <button
           onClick={() => setActiveTab('credit_card')}
-          className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${
+          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
             activeTab === 'credit_card'
-              ? 'bg-slate-900 text-white shadow-sm'
+              ? 'bg-slate-900 text-white shadow-2xs'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
           }`}
         >

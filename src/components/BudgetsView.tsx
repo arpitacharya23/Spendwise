@@ -204,46 +204,82 @@ export const BudgetsView: React.FC<BudgetsViewProps> = ({
 
   return (
     <div className="space-y-6 pb-16 animate-fadeIn">
-      {/* Month Selector & Quick Actions */}
-      <div className="flex items-center justify-end gap-2 flex-wrap">
-        <button
-          onClick={handleJumpToCurrent}
-          className={`px-3 py-1.5 text-xs font-semibold rounded-xl transition shadow-2xs ${
-            isCurrentMonth 
-              ? 'bg-blue-50 text-blue-700 border border-blue-200' 
-              : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-          }`}
-        >
-          Current Month
-        </button>
+      {/* Top Metrics Strip & Month Actions on the Same Line */}
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">
+        {/* Monthly Financial Metric Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 flex-1">
+          <div className="group bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total Spent</span>
+            <div className="text-sm font-extrabold text-slate-900 mt-0.5 leading-tight privacy-value">
+              {user.currency}{totalMonthSpending.toLocaleString('en-IN')}
+            </div>
+          </div>
 
-        <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 shadow-2xs">
-          <button
-            onClick={handlePrevMonth}
-            className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition"
-            title="Previous Month"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <span className="px-3 text-xs font-bold text-slate-800 min-w-[130px] text-center">
-            {monthName} {selectedYear}
-          </span>
-          <button
-            onClick={handleNextMonth}
-            className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition"
-            title="Next Month"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
+          <div className="group bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Monthly Budget</span>
+            <div className="text-sm font-extrabold text-blue-700 mt-0.5 leading-tight privacy-value">
+              {user.currency}{masterBudgetLimit.toLocaleString('en-IN')}
+            </div>
+          </div>
+
+          <div className="group bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Remaining</span>
+            <div className={`text-sm font-extrabold mt-0.5 leading-tight privacy-value ${
+              isMasterOverBudget ? 'text-rose-700' : 'text-emerald-700'
+            }`}>
+              {isMasterOverBudget ? '-' : '+'}{user.currency}{Math.abs(remainingMasterBudget).toLocaleString('en-IN')}
+            </div>
+          </div>
+
+          <div className="group bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Daily Runway</span>
+            <div className="text-sm font-extrabold text-slate-900 mt-0.5 leading-tight privacy-value">
+              {user.currency}{dailyRunway.toLocaleString('en-IN')}<span className="text-[11px] font-normal text-slate-500">/day</span>
+            </div>
+          </div>
         </div>
 
-        <button
-          onClick={() => onOpenAddExpense(`${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-01`)}
-          className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs transition active:scale-95 ml-1"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add Expense</span>
-        </button>
+        {/* Month Selector & Quick Actions */}
+        <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
+          <button
+            onClick={handleJumpToCurrent}
+            className={`px-3 py-2 text-xs font-semibold rounded-xl transition shadow-2xs cursor-pointer ${
+              isCurrentMonth 
+                ? 'bg-blue-50 text-blue-700 border border-blue-200' 
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+            }`}
+          >
+            Current Month
+          </button>
+
+          <div className="flex items-center bg-white border border-slate-200 rounded-xl p-0.5 shadow-2xs">
+            <button
+              onClick={handlePrevMonth}
+              className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+              title="Previous Month"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+            <span className="px-2.5 text-xs font-bold text-slate-800 min-w-[110px] text-center">
+              {monthName} {selectedYear}
+            </span>
+            <button
+              onClick={handleNextMonth}
+              className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+              title="Next Month"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <button
+            onClick={() => onOpenAddExpense(`${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-01`)}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-2xs transition active:scale-95 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Expense</span>
+          </button>
+        </div>
       </div>
 
       {/* Master Monthly Budget Hero Card */}

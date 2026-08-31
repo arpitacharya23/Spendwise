@@ -105,34 +105,36 @@ export const LoansView: React.FC<LoansViewProps> = ({
 
   return (
     <div className="space-y-6 pb-12">
-      {/* Top Action Toolbar */}
-      <div className="flex items-center justify-end gap-3 flex-wrap">
-        <button
-          onClick={() => setIsAddModalOpen(true)}
-          id="btn-add-loan"
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm shadow-sm transition active:scale-95"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add New Loan / EMI</span>
-        </button>
-      </div>
-
-      {/* Summary KPI Banner */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="group bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition">
-          <span className="text-xs font-bold uppercase text-slate-700">Total Outstanding Principal</span>
-          <div className="text-2xl font-extrabold text-slate-900 mt-1 privacy-value">
-            {user.currency}{totalPrincipalRemaining.toLocaleString('en-IN')}
+      {/* Top Metrics Strip & Action Button on the Same Line */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+        {/* KPI Metric Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 flex-1">
+          <div className="group bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total Outstanding Principal</span>
+            <div className="text-sm font-extrabold text-slate-900 mt-0.5 leading-tight privacy-value">
+              {user.currency}{totalPrincipalRemaining.toLocaleString('en-IN')}
+              <span className="text-[11px] font-normal text-slate-500 ml-1.5">({activeLoans.length} active)</span>
+            </div>
           </div>
-          <p className="text-xs text-slate-600 mt-1">Across {activeLoans.length} active loans & EMIs</p>
+
+          <div className="group bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Monthly EMI Outflow</span>
+            <div className="text-sm font-extrabold text-rose-700 mt-0.5 leading-tight privacy-value">
+              {user.currency}{totalMonthlyEMIs.toLocaleString('en-IN')}
+            </div>
+          </div>
         </div>
 
-        <div className="group bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition">
-          <span className="text-xs font-bold uppercase text-slate-700">Total Monthly EMI Outflow</span>
-          <div className="text-2xl font-extrabold text-rose-600 mt-1 privacy-value">
-            {user.currency}{totalMonthlyEMIs.toLocaleString('en-IN')}
-          </div>
-          <p className="text-xs text-slate-600 mt-1">Auto-deducted every month</p>
+        {/* Action Button */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={() => setIsAddModalOpen(true)}
+            id="btn-add-loan"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-2xs transition active:scale-95 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add New Loan / EMI</span>
+          </button>
         </div>
       </div>
 

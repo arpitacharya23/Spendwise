@@ -850,64 +850,62 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
 
   return (
     <div ref={transactionsViewRef} className="space-y-6 pb-12 animate-fadeIn">
-      {/* Top Actions */}
-      <div className="flex items-center justify-end gap-2.5 flex-wrap">
-        {onOpenCalendar && (
-          <button
-            onClick={onOpenCalendar}
-            id="btn-switch-to-calendar"
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-semibold transition shadow-xs"
-            title="Open monthly cashflow calendar"
-          >
-            <Calendar className="w-4 h-4 text-blue-600" />
-            <span>Calendar View</span>
-          </button>
-        )}
-
-        <button
-          onClick={handleExportCSV}
-          id="btn-export-transactions-csv"
-          className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-semibold transition shadow-xs"
-          title="Download CSV of filtered results"
-        >
-          <Download className="w-4 h-4 text-slate-600" />
-          <span>Export CSV</span>
-        </button>
-      </div>
-
-      {/* Filtered Financial Metrics Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="group bg-white rounded-2xl p-4 border border-slate-200 shadow-xs hover:shadow-sm transition">
-          <span className="text-[11px] font-bold uppercase text-slate-600">Total Filtered Count</span>
-          <div className="text-xl font-extrabold text-slate-900 mt-0.5">
-            {filteredTransactions.length} <span className="text-xs font-normal text-slate-700">/ {transactions.length}</span>
+      {/* Top Metrics Strip & Action Buttons on the Same Line */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
+        {/* 4 Financial Metric Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 flex-1">
+          <div className="group bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Filtered Count</span>
+            <div className="text-sm font-extrabold text-slate-900 mt-0.5 leading-tight">
+              {filteredTransactions.length} <span className="text-[11px] font-normal text-slate-500">/ {transactions.length}</span>
+            </div>
           </div>
-          {filteredTransactions.length > visibleCount && (
-            <span className="text-[10px] text-blue-600 font-semibold mt-0.5 block">
-              Showing first {visibleCount} (scroll for more)
-            </span>
+
+          <div className="group bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Outflow</span>
+            <div className="text-sm font-extrabold text-slate-900 mt-0.5 leading-tight privacy-value">
+              {user.currency}{totalFilteredOutflow.toLocaleString('en-IN')}
+            </div>
+          </div>
+
+          <div className="group bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Inflow</span>
+            <div className="text-sm font-extrabold text-emerald-700 mt-0.5 leading-tight privacy-value">
+              {user.currency}{totalFilteredInflow.toLocaleString('en-IN')}
+            </div>
+          </div>
+
+          <div className="group bg-white rounded-xl px-3.5 py-2 border border-slate-200 shadow-2xs hover:shadow-xs transition flex flex-col justify-center">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Net Balance</span>
+            <div className={`text-sm font-extrabold mt-0.5 leading-tight privacy-value ${netFilteredAmount >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+              {netFilteredAmount >= 0 ? '+' : ''}{user.currency}{netFilteredAmount.toLocaleString('en-IN')}
+            </div>
+          </div>
+        </div>
+
+        {/* Calendar View & Export CSV Actions */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {onOpenCalendar && (
+            <button
+              onClick={onOpenCalendar}
+              id="btn-switch-to-calendar"
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-semibold transition shadow-2xs cursor-pointer active:scale-95"
+              title="Open monthly cashflow calendar"
+            >
+              <Calendar className="w-4 h-4 text-blue-600" />
+              <span>Calendar View</span>
+            </button>
           )}
-        </div>
 
-        <div className="group bg-white rounded-2xl p-4 border border-slate-200 shadow-xs hover:shadow-sm transition">
-          <span className="text-[11px] font-bold uppercase text-slate-600">Filtered Outflow</span>
-          <div className="text-xl font-extrabold text-slate-900 mt-0.5 privacy-value">
-            {user.currency}{totalFilteredOutflow.toLocaleString('en-IN')}
-          </div>
-        </div>
-
-        <div className="group bg-white rounded-2xl p-4 border border-slate-200 shadow-xs hover:shadow-sm transition">
-          <span className="text-[11px] font-bold uppercase text-slate-600">Filtered Inflow</span>
-          <div className="text-xl font-extrabold text-emerald-700 mt-0.5 privacy-value">
-            {user.currency}{totalFilteredInflow.toLocaleString('en-IN')}
-          </div>
-        </div>
-
-        <div className="group bg-white rounded-2xl p-4 border border-slate-200 shadow-xs hover:shadow-sm transition">
-          <span className="text-[11px] font-bold uppercase text-slate-600">Net Balance</span>
-          <div className={`text-xl font-extrabold mt-0.5 privacy-value ${netFilteredAmount >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-            {netFilteredAmount >= 0 ? '+' : ''}{user.currency}{netFilteredAmount.toLocaleString('en-IN')}
-          </div>
+          <button
+            onClick={handleExportCSV}
+            id="btn-export-transactions-csv"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 rounded-xl text-xs font-semibold transition shadow-2xs cursor-pointer active:scale-95"
+            title="Download CSV of filtered results"
+          >
+            <Download className="w-4 h-4 text-slate-600" />
+            <span>Export CSV</span>
+          </button>
         </div>
       </div>
 
