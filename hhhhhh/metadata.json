@@ -1,0 +1,6 @@
+{
+  "name": "SpendWise - Expense Tracker & Splitwise",
+  "description": "Comprehensive personal finance & Splitwise platform featuring customizable dashboard layout management, keyword-based rule engine with CSV import & export for automated transaction categorization, credit card & loan EMI tracking, and budget analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
