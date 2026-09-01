@@ -10,10 +10,9 @@ import {
   Copy,
   Check,
   Code,
-  ShieldCheck,
   Sparkles,
-  HelpCircle,
-  Trash2
+  Trash2,
+  CheckCircle2
 } from 'lucide-react';
 import { UserProfile, Account, Transaction, Category, LoanEMI, TransactionRule } from '../types';
 import { 
@@ -23,10 +22,6 @@ import {
   getStoredGSheetConfig,
   saveStoredGSheetConfig,
   clearStoredGSheetConfig,
-  requestGoogleOAuthToken,
-  getOrCreateSpendwiseSpreadsheet,
-  syncAllDataToGoogleSheets,
-  pullDataFromGoogleSheets,
   testWebAppConnection,
   syncAllDataViaWebApp,
   pullDataViaWebApp,
@@ -64,8 +59,6 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({
   const [pref, setPref] = useState<DatabasePreference>(() => getStoredDatabasePreference());
   const [gsheetConfig, setGsheetConfig] = useState<GoogleSheetsSyncConfig>(() => getStoredGSheetConfig());
   
-  // Connection method tab: 'manual' vs 'oauth'
-  const [connectMethod, setConnectMethod] = useState<'manual' | 'oauth'>('manual');
   const [manualWebAppUrl, setManualWebAppUrl] = useState(gsheetConfig.webAppUrl || '');
   const [manualSpreadsheetUrl, setManualSpreadsheetUrl] = useState(gsheetConfig.spreadsheetUrl || '');
   const [hasCopiedScript, setHasCopiedScript] = useState(false);
@@ -119,7 +112,7 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({
     setTimeout(() => setHasCopiedScript(false), 3000);
   };
 
-  // 1. Manual Apps Script Web App Connection
+  // Connect Google Apps Script Web App
   const handleConnectManualWebApp = async () => {
     if (!manualWebAppUrl.trim()) {
       setGsheetStatusMessage({
@@ -178,27 +171,12 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({
     }
   };
 
-  // 2. Automatic Google OAuth Connection
-  const handleConnectGoogleOAuth = async (forceConsent = true) => {
-    setIsConnectingGSheet(true);
+  const handleSyncToSheets = async () => {
+    if (!gsheetConfig.webAppUrl) return;
+    setIsSyncingGSheet(true);
     setGsheetStatusMessage(null);
     try {
-      const token = await requestGoogleOAuthToken(forceConsent);
-      const sheet = await getOrCreateSpendwiseSpreadsheet(token, `SpendWise Ledger - ${user.name || 'Personal'}`);
-
-      const newConfig: GoogleSheetsSyncConfig = {
-        ...gsheetConfig,
-        connectionType: 'oauth',
-        spreadsheetId: sheet.id,
-        spreadsheetUrl: sheet.url,
-        webAppUrl: undefined,
-        lastSyncedAt: new Date().toISOString(),
-        autoSync: true
-      };
-      setGsheetConfig(newConfig);
-      saveStoredGSheetConfig(newConfig);
-
-      const syncRes = await syncAllDataToGoogleSheets(token, sheet.id, {
+      const res = await syncAllDataViaWebApp(gsheetConfig.webAppUrl, {
         accounts,
         transactions,
         categories,
@@ -206,76 +184,13 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({
         rules,
         user
       });
-
-      if (!pref.useGoogleSheets) {
-        const newPref = { ...pref, useGoogleSheets: true };
-        setPref(newPref);
-        saveStoredDatabasePreference(newPref);
-      }
-
-      setGsheetStatusMessage({ 
-        type: 'success', 
-        text: `Connected! ${syncRes.message}` 
-      });
-    } catch (err: any) {
-      console.error('Google Sheets OAuth connection error:', err);
-      setGsheetStatusMessage({ 
-        type: 'error', 
-        text: err?.message || 'Failed to connect Google Sheets. Consider using the Manual Web App option.' 
-      });
-    } finally {
-      setIsConnectingGSheet(false);
-    }
-  };
-
-  const handleSyncToSheets = async () => {
-    setIsSyncingGSheet(true);
-    setGsheetStatusMessage(null);
-    try {
-      if (gsheetConfig.connectionType === 'webapp' || gsheetConfig.webAppUrl) {
-        const res = await syncAllDataViaWebApp(gsheetConfig.webAppUrl!, {
-          accounts,
-          transactions,
-          categories,
-          loans,
-          rules,
-          user
-        });
-        const updatedConfig = {
-          ...gsheetConfig,
-          lastSyncedAt: new Date().toISOString()
-        };
-        setGsheetConfig(updatedConfig);
-        saveStoredGSheetConfig(updatedConfig);
-        setGsheetStatusMessage({ type: 'success', text: res.message });
-      } else {
-        const token = await requestGoogleOAuthToken();
-        let targetSheetId = gsheetConfig.spreadsheetId;
-        if (!targetSheetId) {
-          const sheet = await getOrCreateSpendwiseSpreadsheet(token, `SpendWise Ledger - ${user.name || 'Personal'}`);
-          targetSheetId = sheet.id;
-          const newConfig = { ...gsheetConfig, spreadsheetId: sheet.id, spreadsheetUrl: sheet.url };
-          setGsheetConfig(newConfig);
-          saveStoredGSheetConfig(newConfig);
-        }
-
-        const res = await syncAllDataToGoogleSheets(token, targetSheetId, {
-          accounts,
-          transactions,
-          categories,
-          loans,
-          rules,
-          user
-        });
-
-        const updatedConfig = {
-          ...gsheetConfig,
-          lastSyncedAt: new Date().toISOString()
-        };
-        setGsheetConfig(updatedConfig);
-        saveStoredGSheetConfig(updatedConfig);
-        setGsheetStatusMessage({ type: 'success', text: res.message });
-      }
+      const updatedConfig = {
+        ...gsheetConfig,
+        lastSyncedAt: new Date().toISOString()
+      };
+      setGsheetConfig(updatedConfig);
+      saveStoredGSheetConfig(updatedConfig);
+      setGsheetStatusMessage({ type: 'success', text: res.message });
     } catch (err: any) {
       setGsheetStatusMessage({ type: 'error', text: err?.message || 'Sync failed.' });
     } finally {
@@ -284,17 +199,11 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({
   };
 
   const handlePullFromSheets = async () => {
-    if (!gsheetConfig.webAppUrl && !gsheetConfig.spreadsheetId) return;
+    if (!gsheetConfig.webAppUrl) return;
     setIsPullingGSheet(true);
     setGsheetStatusMessage(null);
     try {
-      let sheetData: any = {};
-      if (gsheetConfig.connectionType === 'webapp' || gsheetConfig.webAppUrl) {
-        sheetData = await pullDataViaWebApp(gsheetConfig.webAppUrl!);
-      } else {
-        const token = await requestGoogleOAuthToken();
-        sheetData = await pullDataFromGoogleSheets(token, gsheetConfig.spreadsheetId!);
-      }
+      const sheetData = await pullDataViaWebApp(gsheetConfig.webAppUrl);
 
       if (onRestoreFromSheets) {
         onRestoreFromSheets(sheetData);
@@ -330,13 +239,13 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({
     });
   };
 
-  const isConnected = Boolean(gsheetConfig.webAppUrl || gsheetConfig.spreadsheetId);
+  const isConnected = Boolean(gsheetConfig.webAppUrl);
 
   return (
     <div className="max-w-4xl mx-auto py-2 space-y-4 text-slate-700 dark:text-slate-300">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         
-        {/* Cloud Storage Card */}
+        {/* Cloud Storage Card - Default Enabled */}
         <div className={`rounded-2xl border-2 transition-all p-5 bg-white dark:bg-slate-900 flex flex-col justify-between ${
           pref.useCloudStorage 
             ? 'border-blue-500 shadow-sm ring-1 ring-blue-500' 
@@ -349,9 +258,14 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({
                   <Cloud className="w-6 h-6" />
                 </div>
                 <div>
-                  <h2 className="text-sm font-bold text-slate-900 dark:text-white">Cloud Storage</h2>
+                  <div className="flex items-center gap-1.5">
+                    <h2 className="text-sm font-bold text-slate-900 dark:text-white">Cloud Storage</h2>
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
+                      Default ON
+                    </span>
+                  </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Supabase database
+                    Supabase cloud database
                   </p>
                 </div>
               </div>
@@ -375,12 +289,12 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({
               </button>
             </div>
             <p className="text-xs text-slate-600 dark:text-slate-400 mt-2">
-              Primary cloud backend for multi-device sync and fast data access.
+              Primary cloud backend for multi-device sync and real-time data persistence.
             </p>
           </div>
         </div>
 
-        {/* Google Sheets Card */}
+        {/* Google Sheets Card (Google Apps Script Web App) */}
         <div className={`rounded-2xl border-2 transition-all p-5 bg-white dark:bg-slate-900 flex flex-col justify-between ${
           pref.useGoogleSheets 
             ? 'border-emerald-500 shadow-sm ring-1 ring-emerald-500' 
@@ -393,9 +307,9 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({
                   <FileSpreadsheet className="w-6 h-6" />
                 </div>
                 <div>
-                  <h2 className="text-sm font-bold text-slate-900 dark:text-white">Personal Google Sheet</h2>
+                  <h2 className="text-sm font-bold text-slate-900 dark:text-white">Personal Google Sheet (GAS)</h2>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Your personal Google Drive spreadsheet
+                    Connect personal spreadsheet via Apps Script
                   </p>
                 </div>
               </div>
@@ -426,7 +340,7 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({
                   <div className="flex items-center gap-1.5 truncate">
                     <span className="font-semibold text-slate-700 dark:text-slate-200">Connection:</span>
                     <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                      {gsheetConfig.connectionType === 'webapp' ? '⚡ Apps Script Web App' : '🔑 Google OAuth'}
+                      ⚡ Google Apps Script (GAS)
                     </span>
                   </div>
                   {gsheetConfig.spreadsheetUrl && (
@@ -505,89 +419,41 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({
                 </div>
               </div>
             ) : (
-              /* Connect Selector: Manual vs OAuth */
-              <div className="space-y-3 pt-1 border-t border-slate-100 dark:border-slate-800">
-                <div className="flex rounded-lg bg-slate-100 dark:bg-slate-800 p-0.5 text-xs font-semibold">
+              /* Connect UI: Dedicated Apps Script setup */
+              <div className="space-y-2 bg-slate-50 dark:bg-slate-800/50 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700/60 text-xs">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">1. Copy Apps Script:</span>
                   <button
                     type="button"
-                    onClick={() => setConnectMethod('manual')}
-                    className={`flex-1 py-1.5 px-2 rounded-md transition flex items-center justify-center gap-1 cursor-pointer ${
-                      connectMethod === 'manual'
-                        ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-xs'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                    }`}
+                    onClick={handleCopyScript}
+                    className="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-200 transition flex items-center gap-1 cursor-pointer"
                   >
-                    <Sparkles className="w-3 h-3 text-emerald-500" />
-                    Manual (Apps Script)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConnectMethod('oauth')}
-                    className={`flex-1 py-1.5 px-2 rounded-md transition flex items-center justify-center gap-1 cursor-pointer ${
-                      connectMethod === 'oauth'
-                        ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-400 shadow-xs'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                    }`}
-                  >
-                    <ShieldCheck className="w-3 h-3 text-blue-500" />
-                    Automatic (OAuth)
+                    {hasCopiedScript ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                    {hasCopiedScript ? 'Copied!' : 'Copy Script Code'}
                   </button>
                 </div>
 
-                {connectMethod === 'manual' && (
-                  <div className="space-y-2 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-200 dark:border-slate-700/60 text-xs">
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="font-semibold text-slate-700 dark:text-slate-300">1. Copy Apps Script:</span>
-                      <button
-                        type="button"
-                        onClick={handleCopyScript}
-                        className="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-200 transition flex items-center gap-1 cursor-pointer"
-                      >
-                        {hasCopiedScript ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                        {hasCopiedScript ? 'Copied!' : 'Copy Script Code'}
-                      </button>
-                    </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  2. In your Sheet, click <strong>Extensions → Apps Script</strong>, paste code, click <strong>Deploy → New deployment → Web app</strong> (Who has access: <em>Anyone</em>).
+                </p>
 
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      2. In your Sheet, click <strong>Extensions → Apps Script</strong>, paste code, click <strong>Deploy → Web app</strong> (Access: Anyone).
-                    </p>
+                <input
+                  type="url"
+                  placeholder="3. Paste Web App URL (https://script.google.com/.../exec)"
+                  value={manualWebAppUrl}
+                  onChange={(e) => setManualWebAppUrl(e.target.value)}
+                  className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono text-[11px]"
+                />
 
-                    <input
-                      type="url"
-                      placeholder="3. Paste Web App URL (https://script.google.com/.../exec)"
-                      value={manualWebAppUrl}
-                      onChange={(e) => setManualWebAppUrl(e.target.value)}
-                      className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono text-[11px]"
-                    />
-
-                    <button
-                      type="button"
-                      onClick={handleConnectManualWebApp}
-                      disabled={isConnectingGSheet || !manualWebAppUrl.trim()}
-                      className="w-full py-2 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs mt-1"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      {isConnectingGSheet ? 'Testing Connection...' : 'Connect Personal Sheet'}
-                    </button>
-                  </div>
-                )}
-
-                {connectMethod === 'oauth' && (
-                  <div className="space-y-2 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-200 dark:border-slate-700/60 text-xs">
-                    <p className="text-[11px] text-slate-600 dark:text-slate-400">
-                      Connect directly using Google Sign-In to auto-create a SpendWise sheet in Google Drive.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => handleConnectGoogleOAuth(true)}
-                      disabled={isConnectingGSheet}
-                      className="w-full py-2 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                    >
-                      <ShieldCheck className="w-3.5 h-3.5" />
-                      {isConnectingGSheet ? 'Connecting via Google...' : 'Sign in & Connect with Google'}
-                    </button>
-                  </div>
-                )}
+                <button
+                  type="button"
+                  onClick={handleConnectManualWebApp}
+                  disabled={isConnectingGSheet || !manualWebAppUrl.trim()}
+                  className="w-full py-2 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs mt-1"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  {isConnectingGSheet ? 'Testing Connection...' : 'Connect Personal Sheet'}
+                </button>
               </div>
             )}
 
@@ -625,23 +491,7 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({
                   : 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800'
               }`}>
                 <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  <span>{gsheetStatusMessage.text}</span>
-                  {gsheetStatusMessage.type === 'error' && gsheetStatusMessage.text.includes('403') && (
-                    <div className="pt-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setConnectMethod('manual');
-                          setGsheetStatusMessage(null);
-                        }}
-                        className="text-emerald-700 dark:text-emerald-300 underline font-semibold text-[10px] cursor-pointer"
-                      >
-                        👉 Switch to Manual (Apps Script) connection option
-                      </button>
-                    </div>
-                  )}
-                </div>
+                <span>{gsheetStatusMessage.text}</span>
               </div>
             )}
           </div>
@@ -651,4 +501,3 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({
     </div>
   );
 };
-

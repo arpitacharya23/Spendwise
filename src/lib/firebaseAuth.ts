@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { getAuth } from 'firebase/auth';
 
 const firebaseConfig = {
   projectId: "gen-lang-client-0759268782",
@@ -14,22 +14,3 @@ const firebaseConfig = {
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
-
-export async function requestGoogleWorkspaceToken(): Promise<string> {
-  const provider = new GoogleAuthProvider();
-  provider.addScope('https://www.googleapis.com/auth/spreadsheets');
-  provider.addScope('https://www.googleapis.com/auth/drive.file');
-  provider.setCustomParameters({
-    prompt: 'consent',
-    access_type: 'offline'
-  });
-
-  const result = await signInWithPopup(auth, provider);
-  const credential = GoogleAuthProvider.credentialFromResult(result);
-  
-  if (!credential?.accessToken) {
-    throw new Error('No access token returned from Google authorization.');
-  }
-
-  return credential.accessToken;
-}

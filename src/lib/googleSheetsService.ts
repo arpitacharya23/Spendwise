@@ -1,25 +1,51 @@
-// Client-side Google Sheets & Drive API helper using:
-// 1. Google Apps Script Web App (Manual Personal Sheet - permanent, zero-expiry, custom sheet)
-// 2. Google Identity Services (GIS) / OAuth token (Automatic One-Click)
-// Uses endpoints:
-// - Google Drive API v3: search/create SpendWise spreadsheet
-// - Google Sheets API v4: batchUpdate, values.get, values.update, values.append
-// - Apps Script Web App: doGet (ping/pull) & doPost (syncAll/appendTransaction)
+// Client-side Google Sheets service using Google Apps Script (GAS) Web App
+// Allows users to connect their personal Google Sheet via a lightweight Apps Script Web App
+// Features:
+// - Zero OAuth tokens, zero expiry, zero 403 authorization popup blocks
+// - Two-way sync: push (syncAll) and pull (restore)
+// - Background auto-sync on local transactions/accounts modifications
 
-import { requestGoogleWorkspaceToken } from './firebaseAuth';
+// Local storage key for storing user's selected sheet info & database target
+export const GSHEET_CONFIG_KEY = 'spendwise_gsheet_config';
+export const DATABASE_SELECTION_KEY = 'spendwise_database_preference';
+export const LAST_DATA_MODIFIED_KEY = 'spendwise_last_data_modified_at';
 
-declare global {
-  interface Window {
-    google?: any;
-    gapi?: any;
+export interface DatabasePreference {
+  useCloudStorage: boolean; // Supabase Cloud database
+  useGoogleSheets: boolean; // Personal Google Sheets (via Apps Script Web App)
+}
+
+export function getStoredDatabasePreference(): DatabasePreference {
+  try {
+    const saved = localStorage.getItem(DATABASE_SELECTION_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      return {
+        useCloudStorage: parsed.useCloudStorage !== false, // Cloud sync ON by default
+        useGoogleSheets: Boolean(parsed.useGoogleSheets),
+      };
+    }
+  } catch {
+    // fallback
+  }
+  // Default: Cloud storage enabled, Google Sheets false unless user enables it
+  return {
+    useCloudStorage: true,
+    useGoogleSheets: false,
+  };
+}
+
+export function saveStoredDatabasePreference(pref: DatabasePreference) {
+  try {
+    localStorage.setItem(DATABASE_SELECTION_KEY, JSON.stringify(pref));
+  } catch (e) {
+    console.error('Failed to save database preference', e);
   }
 }
 
-export type GSheetConnectionType = 'oauth' | 'webapp';
-
 export interface GoogleSheetsSyncConfig {
-  connectionType?: GSheetConnectionType;
-  webAppUrl?: string; // Google Apps Script Web App URL (for manual method)
+  connectionType?: 'webapp';
+  webAppUrl?: string; // Google Apps Script Web App URL
   spreadsheetId?: string;
   spreadsheetUrl?: string;
   autoSync: boolean;
@@ -38,44 +64,6 @@ export interface GoogleSheetsSyncResult {
     loans: number;
     rules: number;
   };
-}
-
-let cachedAccessToken: string | null = null;
-let tokenExpiresAt: number = 0;
-let tokenClientInstance: any = null;
-
-// Local storage key for storing user's selected sheet info & database target
-export const GSHEET_CONFIG_KEY = 'spendwise_gsheet_config';
-export const DATABASE_SELECTION_KEY = 'spendwise_database_preference';
-export const LAST_DATA_MODIFIED_KEY = 'spendwise_last_data_modified_at';
-
-export interface DatabasePreference {
-  useCloudStorage: boolean; // Supabase
-  useGoogleSheets: boolean; // Google Sheets
-}
-
-export function getStoredDatabasePreference(): DatabasePreference {
-  try {
-    const saved = localStorage.getItem(DATABASE_SELECTION_KEY);
-    if (saved) {
-      return JSON.parse(saved);
-    }
-  } catch {
-    // fallback
-  }
-  // Default: Cloud storage enabled, Google Sheets false unless user enables it
-  return {
-    useCloudStorage: true,
-    useGoogleSheets: false,
-  };
-}
-
-export function saveStoredDatabasePreference(pref: DatabasePreference) {
-  try {
-    localStorage.setItem(DATABASE_SELECTION_KEY, JSON.stringify(pref));
-  } catch (e) {
-    console.error('Failed to save database preference', e);
-  }
 }
 
 export function getStoredGSheetConfig(): GoogleSheetsSyncConfig {
@@ -106,8 +94,6 @@ export function saveStoredGSheetConfig(config: GoogleSheetsSyncConfig) {
 export function clearStoredGSheetConfig() {
   try {
     localStorage.removeItem(GSHEET_CONFIG_KEY);
-    cachedAccessToken = null;
-    tokenExpiresAt = 0;
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('spendwise_gsheet_sync_updated', { detail: null }));
     }
@@ -145,12 +131,12 @@ export function markDataModified(timestamp?: string): string {
 export type GoogleSheetSyncState = 'disconnected' | 'synced' | 'pending';
 
 /**
- * Returns whether a Google Sheet is currently connected.
+ * Returns whether a Google Sheet is currently connected via Google Apps Script Web App.
  */
 export function isGoogleSheetsConnected(): boolean {
   try {
     const config = getStoredGSheetConfig();
-    return Boolean(config && (config.spreadsheetId || config.webAppUrl));
+    return Boolean(config && config.webAppUrl);
   } catch {
     return false;
   }
@@ -162,7 +148,7 @@ export function isGoogleSheetsConnected(): boolean {
 export function isGoogleSheetsSynced(latestItemTimestamp?: string | number): boolean {
   try {
     const config = getStoredGSheetConfig();
-    if ((!config.spreadsheetId && !config.webAppUrl) || !config.lastSyncedAt) {
+    if (!config.webAppUrl || !config.lastSyncedAt) {
       return false;
     }
 
@@ -201,30 +187,13 @@ export function isGoogleSheetsSynced(latestItemTimestamp?: string | number): boo
 export function getGoogleSheetSyncStatus(): GoogleSheetSyncState {
   try {
     const config = getStoredGSheetConfig();
-    if (!config || (!config.spreadsheetId && !config.webAppUrl)) {
+    if (!config || !config.webAppUrl) {
       return 'disconnected';
     }
     return isGoogleSheetsSynced() ? 'synced' : 'pending';
   } catch {
     return 'disconnected';
   }
-}
-
-export function getCachedGSheetToken(): string | null {
-  if (cachedAccessToken && Date.now() < tokenExpiresAt - 60000) {
-    return cachedAccessToken;
-  }
-  return null;
-}
-
-export function setManualGSheetToken(token: string) {
-  cachedAccessToken = token.trim();
-  tokenExpiresAt = Date.now() + 86400 * 1000;
-}
-
-export function clearCachedGSheetToken() {
-  cachedAccessToken = null;
-  tokenExpiresAt = 0;
 }
 
 let isAutoSyncInProgress = false;
@@ -234,8 +203,7 @@ export function isAutoSyncRunning(): boolean {
 }
 
 /**
- * Automatically synchronizes pending local SpendWise data to Google Sheets
- * without requiring manual user button clicks.
+ * Automatically synchronizes pending local SpendWise data to Google Sheets via GAS Web App
  */
 export async function autoSyncToGoogleSheets(data: {
   accounts: any[];
@@ -251,7 +219,7 @@ export async function autoSyncToGoogleSheets(data: {
   }
 
   const config = getStoredGSheetConfig();
-  if (!config || (!config.webAppUrl && !config.spreadsheetId)) {
+  if (!config || !config.webAppUrl) {
     return null;
   }
 
@@ -265,25 +233,14 @@ export async function autoSyncToGoogleSheets(data: {
   }
 
   try {
-    let result: GoogleSheetsSyncResult | null = null;
-    if (config.connectionType === 'webapp' || config.webAppUrl) {
-      result = await syncAllDataViaWebApp(config.webAppUrl, data);
-    } else {
-      const token = getCachedGSheetToken();
-      if (!token) {
-        // OAuth token not in memory; cannot sync silently without user gesture
-        return null;
-      }
-      const sheetId = config.spreadsheetId;
-      if (!sheetId) {
-        return null;
-      }
-      result = await syncAllDataToGoogleSheets(token, sheetId, data);
-    }
+    const result = await syncAllDataViaWebApp(config.webAppUrl, data);
 
     if (result && result.success) {
       const updatedConfig: GoogleSheetsSyncConfig = {
         ...config,
+        connectionType: 'webapp',
+        spreadsheetId: result.spreadsheetId || config.spreadsheetId,
+        spreadsheetUrl: result.spreadsheetUrl || config.spreadsheetUrl,
         lastSyncedAt: new Date().toISOString(),
         autoSync: true
       };
@@ -304,18 +261,18 @@ export async function autoSyncToGoogleSheets(data: {
 
 // Ready-to-copy Google Apps Script source code
 export const SPENDWISE_APPS_SCRIPT_CODE = `/**
- * SpendWise Google Sheets Personal Sync Script
+ * SpendWise Google Sheets Personal Sync Script (GAS)
  * 
- * Instructions:
+ * Setup Instructions:
  * 1. Open your personal Google Sheet (or create one at sheets.new)
  * 2. Click Extensions > Apps Script
- * 3. Replace all existing code with this script and save (Ctrl+S or Cmd+S)
+ * 3. Replace all existing code with this script and save (Ctrl+S / Cmd+S)
  * 4. Click 'Deploy' > 'New deployment'
- *    - Select type: 'Web app' (gear icon)
+ *    - Click the gear icon next to "Select type" and choose 'Web app'
  *    - Description: SpendWise Sync
- *    - Execute as: 'Me'
+ *    - Execute as: 'Me' (your email)
  *    - Who has access: 'Anyone'
- * 5. Click 'Deploy', authorize the permissions, and copy the Web App URL!
+ * 5. Click 'Deploy', authorize permissions, and copy the Web App URL!
  */
 
 function doGet(e) {
@@ -351,32 +308,23 @@ function doGet(e) {
 
 function doPost(e) {
   try {
-    var contents = e && e.postData ? e.postData.contents : '';
-    var body = {};
-    if (contents) {
-      try {
-        body = JSON.parse(contents);
-      } catch (ex) {
-        body = {};
-      }
-    }
-    var action = body.action || (e && e.parameter ? e.parameter.action : 'syncAll');
+    var contents = e && e.postData && e.postData.contents ? JSON.parse(e.postData.contents) : {};
+    var action = contents.action || 'syncAll';
     var ss = SpreadsheetApp.getActiveSpreadsheet();
 
     if (action === 'syncAll') {
-      var result = syncAllData(ss, body.data || body);
+      var syncResult = syncAllData(ss, contents.data || {});
       return responseJSON({
         success: true,
-        message: 'Successfully synchronized data with Google Sheet!',
+        message: 'All data synchronized successfully to Google Sheet!',
         spreadsheetId: ss.getId(),
         spreadsheetUrl: ss.getUrl(),
-        syncedCount: result
+        syncedCount: syncResult
       });
     }
 
-    if (action === 'addTransaction' || action === 'appendTransaction') {
-      var tx = body.transaction || body;
-      appendTransactionRow(ss, tx);
+    if (action === 'appendTransaction') {
+      var appendRes = appendSingleTransaction(ss, contents.transaction || {});
       return responseJSON({
         success: true,
         message: 'Transaction saved to Google Sheet!',
@@ -391,36 +339,24 @@ function doPost(e) {
   }
 }
 
-function responseJSON(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj))
+function responseJSON(data) {
+  return ContentService.createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-function getOrCreateSheet(ss, sheetName, headers) {
-  var sheet = ss.getSheetByName(sheetName);
-  if (!sheet) {
-    sheet = ss.insertSheet(sheetName);
-  }
-  if (headers && headers.length > 0 && sheet.getLastRow() === 0) {
-    sheet.appendRow(headers);
-    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#F1F5F9');
-    sheet.setFrozenRows(1);
-  }
-  return sheet;
-}
+function syncAllData(ss, data) {
+  var accounts = data.accounts || [];
+  var transactions = data.transactions || [];
+  var categories = data.categories || [];
+  var loans = data.loans || [];
+  var rules = data.rules || [];
+  var user = data.user || {};
 
-function syncAllData(ss, payload) {
-  var accounts = payload.accounts || [];
-  var transactions = payload.transactions || [];
-  var categories = payload.categories || [];
-  var loans = payload.loans || [];
-  var rules = payload.rules || [];
-  var user = payload.user || {};
-
-  // 1. Transactions
-  var txSheet = getOrCreateSheet(ss, 'Transactions', ['ID', 'Date', 'Time', 'Title', 'Amount', 'Type', 'Account ID', 'Category ID', 'Notes', 'Created By', 'Updated At']);
-  txSheet.clearContents();
-  var txRows = [['ID', 'Date', 'Time', 'Title', 'Amount', 'Type', 'Account ID', 'Category ID', 'Notes', 'Created By', 'Updated At']];
+  // 1. Transactions Sheet
+  var txSheet = getOrCreateSheet(ss, 'Transactions');
+  txSheet.clear();
+  var txHeaders = ['ID', 'Date', 'Time', 'Title', 'Amount', 'Type', 'Account ID', 'Category ID', 'Notes', 'Created By', 'Updated At'];
+  var txRows = [txHeaders];
   for (var i = 0; i < transactions.length; i++) {
     var t = transactions[i];
     txRows.push([
@@ -433,62 +369,62 @@ function syncAllData(ss, payload) {
       t.accountId || '',
       t.categoryId || '',
       t.notes || '',
-      t.createdBy || (user ? user.email : ''),
+      t.createdBy || (user.email || ''),
       t.updatedAt || new Date().toISOString()
     ]);
   }
-  txSheet.getRange(1, 1, txRows.length, txRows[0].length).setValues(txRows);
-  txSheet.getRange(1, 1, 1, txRows[0].length).setFontWeight('bold').setBackground('#F1F5F9');
-  txSheet.setFrozenRows(1);
+  txSheet.getRange(1, 1, txRows.length, txHeaders.length).setValues(txRows);
+  formatHeaderRow(txSheet, txHeaders.length, '#10B981');
 
-  // 2. Accounts
-  var accSheet = getOrCreateSheet(ss, 'Accounts', ['ID', 'Name', 'Type', 'Balance', 'Credit Limit', 'Due Amount', 'Due Date', 'Currency', 'Account Last 4', 'Owner Email']);
-  accSheet.clearContents();
-  var accRows = [['ID', 'Name', 'Type', 'Balance', 'Credit Limit', 'Due Amount', 'Due Date', 'Currency', 'Account Last 4', 'Owner Email']];
-  for (var j = 0; j < accounts.length; j++) {
-    var a = accounts[j];
+  // 2. Accounts Sheet
+  var accSheet = getOrCreateSheet(ss, 'Accounts');
+  accSheet.clear();
+  var accHeaders = ['ID', 'Name', 'Type', 'Balance', 'Credit Limit', 'Due Amount', 'Due Date', 'Currency', 'Account Last 4', 'Owner Email'];
+  var accRows = [accHeaders];
+  for (var a = 0; a < accounts.length; a++) {
+    var acc = accounts[a];
     accRows.push([
-      a.id || '',
-      a.name || '',
-      a.type || 'bank',
-      Number(a.balance) || 0,
-      Number(a.creditLimit) || 0,
-      Number(a.dueAmount) || 0,
-      a.dueDate || '',
-      a.currency || (user ? user.currency : 'INR') || 'INR',
-      a.accountNumberLast4 || '',
-      a.ownerEmail || (user ? user.email : '')
+      acc.id || '',
+      acc.name || '',
+      acc.type || 'bank',
+      Number(acc.balance) || 0,
+      Number(acc.creditLimit) || 0,
+      Number(acc.dueAmount) || 0,
+      acc.dueDate || '',
+      acc.currency || user.currency || 'INR',
+      acc.accountNumberLast4 || '',
+      acc.ownerEmail || (user.email || '')
     ]);
   }
-  accSheet.getRange(1, 1, accRows.length, accRows[0].length).setValues(accRows);
-  accSheet.getRange(1, 1, 1, accRows[0].length).setFontWeight('bold').setBackground('#F1F5F9');
-  accSheet.setFrozenRows(1);
+  accSheet.getRange(1, 1, accRows.length, accHeaders.length).setValues(accRows);
+  formatHeaderRow(accSheet, accHeaders.length, '#3B82F6');
 
-  // 3. Categories
-  var catSheet = getOrCreateSheet(ss, 'Categories', ['ID', 'Name', 'Icon', 'Color', 'Type', 'Budget Limit', 'User Email', 'Is Global']);
-  catSheet.clearContents();
-  var catRows = [['ID', 'Name', 'Icon', 'Color', 'Type', 'Budget Limit', 'User Email', 'Is Global']];
-  for (var k = 0; k < categories.length; k++) {
-    var c = categories[k];
+  // 3. Categories Sheet
+  var catSheet = getOrCreateSheet(ss, 'Categories');
+  catSheet.clear();
+  var catHeaders = ['ID', 'Name', 'Icon', 'Color', 'Type', 'Budget Limit', 'User Email', 'Is Global'];
+  var catRows = [catHeaders];
+  for (var c = 0; c < categories.length; c++) {
+    var cat = categories[c];
     catRows.push([
-      c.id || '',
-      c.name || '',
-      c.icon || '',
-      c.color || '',
-      c.type || 'expense',
-      Number(c.budgetLimit) || 0,
-      c.userEmail || (user ? user.email : ''),
-      c.isGlobal ? 'YES' : 'NO'
+      cat.id || '',
+      cat.name || '',
+      cat.icon || '',
+      cat.color || '',
+      cat.type || 'expense',
+      Number(cat.budgetLimit) || 0,
+      cat.userEmail || (user.email || ''),
+      cat.isGlobal ? 'YES' : 'NO'
     ]);
   }
-  catSheet.getRange(1, 1, catRows.length, catRows[0].length).setValues(catRows);
-  catSheet.getRange(1, 1, 1, catRows[0].length).setFontWeight('bold').setBackground('#F1F5F9');
-  catSheet.setFrozenRows(1);
+  catSheet.getRange(1, 1, catRows.length, catHeaders.length).setValues(catRows);
+  formatHeaderRow(catSheet, catHeaders.length, '#8B5CF6');
 
-  // 4. Loans & EMIs
-  var loanSheet = getOrCreateSheet(ss, 'Loans & EMIs', ['ID', 'Name', 'Lender', 'Total Principal', 'Remaining Principal', 'Interest Rate %', 'Monthly EMI', 'Total Tenure (Months)', 'Paid Tenure (Months)', 'Linked Account ID', 'Next Due Date', 'Status']);
-  loanSheet.clearContents();
-  var loanRows = [['ID', 'Name', 'Lender', 'Total Principal', 'Remaining Principal', 'Interest Rate %', 'Monthly EMI', 'Total Tenure (Months)', 'Paid Tenure (Months)', 'Linked Account ID', 'Next Due Date', 'Status']];
+  // 4. Loans & EMIs Sheet
+  var loanSheet = getOrCreateSheet(ss, 'Loans & EMIs');
+  loanSheet.clear();
+  var loanHeaders = ['ID', 'Name', 'Lender', 'Total Principal', 'Remaining Principal', 'Interest Rate %', 'Monthly EMI', 'Total Tenure (Months)', 'Paid Tenure (Months)', 'Linked Account ID', 'Next Due Date', 'Status'];
+  var loanRows = [loanHeaders];
   for (var l = 0; l < loans.length; l++) {
     var ln = loans[l];
     loanRows.push([
@@ -506,48 +442,48 @@ function syncAllData(ss, payload) {
       ln.status || 'active'
     ]);
   }
-  loanSheet.getRange(1, 1, loanRows.length, loanRows[0].length).setValues(loanRows);
-  loanSheet.getRange(1, 1, 1, loanRows[0].length).setFontWeight('bold').setBackground('#F1F5F9');
-  loanSheet.setFrozenRows(1);
+  loanSheet.getRange(1, 1, loanRows.length, loanHeaders.length).setValues(loanRows);
+  formatHeaderRow(loanSheet, loanHeaders.length, '#F59E0B');
 
-  // 5. Rules
-  var ruleSheet = getOrCreateSheet(ss, 'Rules', ['ID', 'Rule Name', 'Keyword(s)', 'Match Type', 'Category ID', 'Account ID', 'Enabled', 'Match Count']);
-  ruleSheet.clearContents();
-  var ruleRows = [['ID', 'Rule Name', 'Keyword(s)', 'Match Type', 'Category ID', 'Account ID', 'Enabled', 'Match Count']];
-  for (var m = 0; m < rules.length; m++) {
-    var r = rules[m];
+  // 5. Rules Sheet
+  var ruleSheet = getOrCreateSheet(ss, 'Rules');
+  ruleSheet.clear();
+  var ruleHeaders = ['ID', 'Rule Name', 'Keyword(s)', 'Match Type', 'Category ID', 'Account ID', 'Enabled', 'Match Count'];
+  var ruleRows = [ruleHeaders];
+  for (var r = 0; r < rules.length; r++) {
+    var rl = rules[r];
     ruleRows.push([
-      r.id || '',
-      r.name || '',
-      r.keyword || '',
-      r.matchType || 'contains',
-      r.categoryId || '',
-      r.accountId || '',
-      r.isEnabled ? 'TRUE' : 'FALSE',
-      Number(r.matchCount) || 0
+      rl.id || '',
+      rl.name || '',
+      rl.keyword || '',
+      rl.matchType || 'contains',
+      rl.categoryId || '',
+      rl.accountId || '',
+      rl.isEnabled ? 'TRUE' : 'FALSE',
+      Number(rl.matchCount) || 0
     ]);
   }
-  ruleSheet.getRange(1, 1, ruleRows.length, ruleRows[0].length).setValues(ruleRows);
-  ruleSheet.getRange(1, 1, 1, ruleRows[0].length).setFontWeight('bold').setBackground('#F1F5F9');
-  ruleSheet.setFrozenRows(1);
+  ruleSheet.getRange(1, 1, ruleRows.length, ruleHeaders.length).setValues(ruleRows);
+  formatHeaderRow(ruleSheet, ruleHeaders.length, '#EC4899');
 
-  // 6. Overview & Metadata
-  var ovSheet = getOrCreateSheet(ss, 'Overview & Sync Info', ['Metric', 'Value']);
-  ovSheet.clearContents();
-  var ovRows = [
-    ['Metric', 'Value'],
-    ['SpendWise Ledger', 'Personal Financial Records'],
+  // 6. Overview & Metadata Sheet
+  var overviewSheet = getOrCreateSheet(ss, 'Overview & Sync Info');
+  overviewSheet.clear();
+  var overviewRows = [
+    ['SpendWise Ledger Sync Overview', ''],
     ['Last Synchronized (UTC)', new Date().toISOString()],
-    ['Owner Email', user ? user.email : ''],
-    ['Owner Name', user ? user.name : ''],
+    ['Owner Email', user.email || ''],
+    ['Owner Name', user.name || ''],
     ['Total Accounts', accounts.length],
     ['Total Transactions', transactions.length],
     ['Total Categories', categories.length],
     ['Total Loans & EMIs', loans.length],
-    ['Total Categorization Rules', rules.length]
+    ['Total Rules', rules.length],
+    ['', ''],
+    ['Notice', 'This sheet is synced with your SpendWise personal finance app.']
   ];
-  ovSheet.getRange(1, 1, ovRows.length, ovRows[0].length).setValues(ovRows);
-  ovSheet.getRange(1, 1, 1, 2).setFontWeight('bold').setBackground('#F1F5F9');
+  overviewSheet.getRange(1, 1, overviewRows.length, 2).setValues(overviewRows);
+  formatHeaderRow(overviewSheet, 2, '#475569');
 
   return {
     accounts: accounts.length,
@@ -558,25 +494,51 @@ function syncAllData(ss, payload) {
   };
 }
 
-function appendTransactionRow(ss, t) {
-  var txSheet = getOrCreateSheet(ss, 'Transactions', ['ID', 'Date', 'Time', 'Title', 'Amount', 'Type', 'Account ID', 'Category ID', 'Notes', 'Created By', 'Updated At']);
-  txSheet.appendRow([
-    t.id || '',
-    t.date || '',
-    t.time || '',
-    t.title || '',
-    Number(t.amount) || 0,
-    t.type || 'expense',
-    t.accountId || '',
-    t.categoryId || '',
-    t.notes || '',
-    t.createdBy || '',
-    t.updatedAt || new Date().toISOString()
-  ]);
+function appendSingleTransaction(ss, tx) {
+  var txSheet = getOrCreateSheet(ss, 'Transactions');
+  var row = [
+    tx.id || ('tx_' + new Date().getTime()),
+    tx.date || new Date().toISOString().split('T')[0],
+    tx.time || '',
+    tx.title || 'Untitled',
+    Number(tx.amount) || 0,
+    tx.type || 'expense',
+    tx.accountId || '',
+    tx.categoryId || '',
+    tx.notes || '',
+    tx.createdBy || '',
+    new Date().toISOString()
+  ];
+  txSheet.appendRow(row);
+  return true;
+}
+
+function getOrCreateSheet(ss, name) {
+  var sheet = ss.getSheetByName(name);
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+  }
+  return sheet;
+}
+
+function formatHeaderRow(sheet, colCount, colorHex) {
+  try {
+    var range = sheet.getRange(1, 1, 1, colCount);
+    range.setFontWeight('bold');
+    range.setBackground(colorHex);
+    range.setFontColor('#FFFFFF');
+    sheet.setFrozenRows(1);
+  } catch(e) {}
 }
 
 function pullAllData(ss) {
-  var res = {};
+  var res = {
+    accounts: [],
+    transactions: [],
+    categories: [],
+    loans: [],
+    rules: []
+  };
 
   // 1. Transactions
   var txSheet = ss.getSheetByName('Transactions');
@@ -584,20 +546,20 @@ function pullAllData(ss) {
     var txData = txSheet.getDataRange().getValues();
     res.transactions = [];
     for (var i = 1; i < txData.length; i++) {
-      var r = txData[i];
-      if (r[0] || r[3]) {
+      var row = txData[i];
+      if (row[0] || row[3]) {
         res.transactions.push({
-          id: String(r[0] || ('tx_' + new Date().getTime() + '_' + i)),
-          date: String(r[1] || ''),
-          time: String(r[2] || ''),
-          title: String(r[3] || ''),
-          amount: Number(r[4]) || 0,
-          type: String(r[5] || 'expense'),
-          accountId: String(r[6] || ''),
-          categoryId: String(r[7] || ''),
-          notes: String(r[8] || ''),
-          createdBy: String(r[9] || ''),
-          updatedAt: String(r[10] || new Date().toISOString())
+          id: String(row[0] || ('tx_' + new Date().getTime() + '_' + i)),
+          date: String(row[1] || new Date().toISOString().split('T')[0]),
+          time: String(row[2] || ''),
+          title: String(row[3] || 'Expense'),
+          amount: Number(row[4]) || 0,
+          type: String(row[5] || 'expense'),
+          accountId: String(row[6] || ''),
+          categoryId: String(row[7] || ''),
+          notes: String(row[8] || ''),
+          createdBy: String(row[9] || ''),
+          updatedAt: String(row[10] || new Date().toISOString())
         });
       }
     }
@@ -609,19 +571,19 @@ function pullAllData(ss) {
     var accData = accSheet.getDataRange().getValues();
     res.accounts = [];
     for (var j = 1; j < accData.length; j++) {
-      var a = accData[j];
-      if (a[0] || a[1]) {
+      var ac = accData[j];
+      if (ac[0] || ac[1]) {
         res.accounts.push({
-          id: String(a[0] || ('acc_' + new Date().getTime() + '_' + j)),
-          name: String(a[1] || ''),
-          type: String(a[2] || 'bank'),
-          balance: Number(a[3]) || 0,
-          creditLimit: a[4] ? Number(a[4]) : undefined,
-          dueAmount: a[5] ? Number(a[5]) : undefined,
-          dueDate: a[6] ? String(a[6]) : undefined,
-          currency: String(a[7] || 'INR'),
-          accountNumberLast4: String(a[8] || ''),
-          ownerEmail: String(a[9] || ''),
+          id: String(ac[0] || ('acc_' + new Date().getTime() + '_' + j)),
+          name: String(ac[1] || 'Account'),
+          type: String(ac[2] || 'bank'),
+          balance: Number(ac[3]) || 0,
+          creditLimit: ac[4] ? Number(ac[4]) : undefined,
+          dueAmount: ac[5] ? Number(ac[5]) : undefined,
+          dueDate: ac[6] ? String(ac[6]) : undefined,
+          currency: String(ac[7] || 'INR'),
+          accountNumberLast4: ac[8] ? String(ac[8]) : '',
+          ownerEmail: ac[9] ? String(ac[9]) : '',
           sharedWith: [],
           color: '#3B82F6'
         });
@@ -635,17 +597,17 @@ function pullAllData(ss) {
     var catData = catSheet.getDataRange().getValues();
     res.categories = [];
     for (var k = 1; k < catData.length; k++) {
-      var c = catData[k];
-      if (c[0] || c[1]) {
+      var ca = catData[k];
+      if (ca[0] || ca[1]) {
         res.categories.push({
-          id: String(c[0] || ('cat_' + new Date().getTime() + '_' + k)),
-          name: String(c[1] || ''),
-          icon: String(c[2] || 'Tag'),
-          color: String(c[3] || '#6B7280'),
-          type: String(c[4] || 'expense'),
-          budgetLimit: c[5] ? Number(c[5]) : undefined,
-          userEmail: String(c[6] || ''),
-          isGlobal: String(c[7]) === 'YES'
+          id: String(ca[0] || ('cat_' + new Date().getTime() + '_' + k)),
+          name: String(ca[1] || 'Category'),
+          icon: String(ca[2] || 'Tag'),
+          color: String(ca[3] || '#6B7280'),
+          type: String(ca[4] || 'expense'),
+          budgetLimit: ca[5] ? Number(ca[5]) : undefined,
+          userEmail: String(ca[6] || ''),
+          isGlobal: String(ca[7]) === 'YES'
         });
       }
     }
@@ -706,7 +668,7 @@ function pullAllData(ss) {
 }`;
 
 // ==========================================
-// 1. Google Apps Script Web App Integration
+// Google Apps Script Web App Integration
 // ==========================================
 
 export async function testWebAppConnection(webAppUrl: string): Promise<{
@@ -818,527 +780,3 @@ export async function pullDataViaWebApp(webAppUrl: string): Promise<{
 
   return result.data || {};
 }
-
-// ==========================================
-// 2. Google Identity Services / OAuth Integration
-// ==========================================
-
-export async function requestGoogleOAuthToken(forceConsent = false): Promise<string> {
-  // Check if we already have a valid token unless consent is forced
-  if (!forceConsent) {
-    const existing = getCachedGSheetToken();
-    if (existing) {
-      return existing;
-    }
-  }
-
-  // 1. Try Google Identity Services (GIS)
-  const tryGisToken = (): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      if (typeof window === 'undefined') {
-        reject(new Error('Window is not available'));
-        return;
-      }
-
-      const clientId = 
-        import.meta.env.VITE_GOOGLE_CLIENT_ID || 
-        '582951335862-ligh4200cq1m4l8rt7u1p4ssg0ilon27.apps.googleusercontent.com';
-
-      const launchGis = () => {
-        try {
-          tokenClientInstance = window.google.accounts.oauth2.initTokenClient({
-            client_id: clientId,
-            scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file',
-            callback: (tokenResponse: any) => {
-              if (tokenResponse.error) {
-                clearCachedGSheetToken();
-                reject(new Error(tokenResponse.error_description || tokenResponse.error));
-                return;
-              }
-              if (tokenResponse.access_token) {
-                cachedAccessToken = tokenResponse.access_token;
-                const expiresIn = parseInt(tokenResponse.expires_in || '3600', 10);
-                tokenExpiresAt = Date.now() + expiresIn * 1000;
-                resolve(tokenResponse.access_token);
-              } else {
-                clearCachedGSheetToken();
-                reject(new Error('No access token received from Google'));
-              }
-            },
-            error_callback: (error: any) => {
-              clearCachedGSheetToken();
-              reject(new Error(error.message || 'Google authorization was cancelled or closed.'));
-            }
-          });
-
-          // Always prompt for consent when connecting to guarantee spreadsheets & drive.file scopes are granted
-          tokenClientInstance.requestAccessToken({ prompt: forceConsent ? 'consent select_account' : 'consent' });
-        } catch (err: any) {
-          reject(err);
-        }
-      };
-
-      if (!window.google?.accounts?.oauth2) {
-        const scriptId = 'google-gsi-client-script';
-        let script = document.getElementById(scriptId) as HTMLScriptElement;
-        if (!script) {
-          script = document.createElement('script');
-          script.id = scriptId;
-          script.src = 'https://accounts.google.com/gsi/client';
-          script.async = true;
-          script.defer = true;
-          script.onload = () => launchGis();
-          script.onerror = () => reject(new Error('Failed to load Google Identity Services SDK'));
-          document.head.appendChild(script);
-        } else {
-          setTimeout(launchGis, 250);
-        }
-      } else {
-        launchGis();
-      }
-    });
-  };
-
-  try {
-    return await tryGisToken();
-  } catch (gisError: any) {
-    console.warn('GIS Token attempt failed:', gisError);
-
-    // Fallback: Firebase Auth if GIS fails
-    try {
-      const token = await requestGoogleWorkspaceToken();
-      if (token) {
-        cachedAccessToken = token;
-        tokenExpiresAt = Date.now() + 3600 * 1000;
-        return token;
-      }
-    } catch (firebaseErr: any) {
-      console.warn('Firebase Auth token flow error:', firebaseErr);
-      if (firebaseErr?.code === 'auth/popup-closed-by-user' || firebaseErr?.message?.includes('popup-closed-by-user')) {
-        throw new Error('Google authorization popup was closed before completing sign-in.');
-      }
-      if (firebaseErr?.code === 'auth/popup-blocked') {
-        throw new Error('The authorization popup was blocked by your browser. Please allow popups for this site and try again.');
-      }
-    }
-
-    throw new Error(gisError?.message || 'Google authorization could not be completed. Please allow popups or use the Manual Web App option.');
-  }
-}
-
-/**
- * Ensures all required sheets/tabs exist in the target spreadsheet.
- * If any tab is missing, creates it using batchUpdate AddSheetRequest.
- */
-export async function ensureSpreadsheetTabsExist(token: string, spreadsheetId: string, requiredTabs: string[]) {
-  try {
-    const metaRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-
-    if (!metaRes.ok) return;
-
-    const meta = await metaRes.json();
-    const existingTitles = new Set((meta.sheets || []).map((s: any) => s.properties?.title));
-
-    const missingTabs = requiredTabs.filter(tab => !existingTitles.has(tab));
-    if (missingTabs.length === 0) return;
-
-    const requests = missingTabs.map(tab => ({
-      addSheet: {
-        properties: {
-          title: tab,
-          gridProperties: { rowCount: 500, columnCount: 15, frozenRowCount: 1 }
-        }
-      }
-    }));
-
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ requests })
-    });
-  } catch (e) {
-    console.warn('Could not pre-create spreadsheet tabs, continuing...', e);
-  }
-}
-
-// Find existing "SpendWise Financial Ledger" spreadsheet in user's Google Drive or create a new one
-export async function getOrCreateSpendwiseSpreadsheet(token: string, spreadsheetTitle = 'SpendWise Financial Ledger'): Promise<{ id: string; url: string; created: boolean }> {
-  // 1. Search in Drive
-  try {
-    const searchUrl = `https://www.googleapis.com/drive/v3/files?q=name='${encodeURIComponent(spreadsheetTitle)}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false&fields=files(id,name,webViewLink)`;
-    
-    const searchRes = await fetch(searchUrl, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-
-    if (searchRes.ok) {
-      const searchData = await searchRes.json();
-      if (searchData.files && searchData.files.length > 0) {
-        const file = searchData.files[0];
-        return {
-          id: file.id,
-          url: file.webViewLink || `https://docs.google.com/spreadsheets/d/${file.id}/edit`,
-          created: false
-        };
-      }
-    }
-  } catch (e) {
-    console.warn('Drive search skipped or failed, proceeding to creation', e);
-  }
-
-  // 2. If not found, create new Spreadsheet with structured sheets
-  const createUrl = 'https://sheets.googleapis.com/v4/spreadsheets';
-  const newSheetPayload = {
-    properties: {
-      title: spreadsheetTitle,
-    },
-    sheets: [
-      {
-        properties: {
-          title: 'Transactions',
-          gridProperties: { rowCount: 1000, columnCount: 12, frozenRowCount: 1 }
-        }
-      },
-      {
-        properties: {
-          title: 'Accounts',
-          gridProperties: { rowCount: 100, columnCount: 10, frozenRowCount: 1 }
-        }
-      },
-      {
-        properties: {
-          title: 'Categories',
-          gridProperties: { rowCount: 100, columnCount: 8, frozenRowCount: 1 }
-        }
-      },
-      {
-        properties: {
-          title: 'Loans & EMIs',
-          gridProperties: { rowCount: 50, columnCount: 12, frozenRowCount: 1 }
-        }
-      },
-      {
-        properties: {
-          title: 'Rules',
-          gridProperties: { rowCount: 100, columnCount: 8, frozenRowCount: 1 }
-        }
-      },
-      {
-        properties: {
-          title: 'Overview & Sync Info',
-          gridProperties: { rowCount: 50, columnCount: 6 }
-        }
-      }
-    ]
-  };
-
-  const createRes = await fetch(createUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(newSheetPayload)
-  });
-
-  if (!createRes.ok) {
-    const errText = await createRes.text();
-    if (createRes.status === 403) {
-      clearCachedGSheetToken();
-      throw new Error('Permission Denied (403): Google Sheets permissions were not granted. Please reconnect and check the permission checkbox or use the Manual Web App option.');
-    }
-    throw new Error(`Failed to create Google Sheet: ${errText}`);
-  }
-
-  const createdSheet = await createRes.json();
-  const sheetId = createdSheet.spreadsheetId;
-  const sheetUrl = createdSheet.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${sheetId}/edit`;
-
-  return {
-    id: sheetId,
-    url: sheetUrl,
-    created: true
-  };
-}
-
-// Sync all local SpendWise data into Google Sheets tabs with formatting & headers
-export async function syncAllDataToGoogleSheets(
-  token: string,
-  spreadsheetId: string,
-  data: {
-    accounts: any[];
-    transactions: any[];
-    categories: any[];
-    loans: any[];
-    rules: any[];
-    user: any;
-  }
-): Promise<GoogleSheetsSyncResult> {
-  const { accounts, transactions, categories, loans, rules, user } = data;
-
-  // Make sure all required tabs exist before sending batch update
-  const requiredTabs = ['Transactions', 'Accounts', 'Categories', 'Loans & EMIs', 'Rules', 'Overview & Sync Info'];
-  await ensureSpreadsheetTabsExist(token, spreadsheetId, requiredTabs);
-
-  // Prepare 2D arrays for each tab
-  // 1. Transactions
-  const txHeader = ['ID', 'Date', 'Time', 'Title', 'Amount', 'Type', 'Account ID', 'Category ID', 'Notes', 'Created By', 'Updated At'];
-  const txRows = transactions.map(t => [
-    t.id || '',
-    t.date || '',
-    t.time || '',
-    t.title || '',
-    t.amount || 0,
-    t.type || 'expense',
-    t.accountId || '',
-    t.categoryId || '',
-    t.notes || '',
-    t.createdBy || (user ? user.email : ''),
-    t.updatedAt || new Date().toISOString()
-  ]);
-  const txData = [txHeader, ...txRows];
-
-  // 2. Accounts
-  const accHeader = ['ID', 'Name', 'Type', 'Balance', 'Credit Limit', 'Due Amount', 'Due Date', 'Currency', 'Account Last 4', 'Owner Email'];
-  const accRows = accounts.map(a => [
-    a.id || '',
-    a.name || '',
-    a.type || 'bank',
-    a.balance || 0,
-    a.creditLimit || 0,
-    a.dueAmount || 0,
-    a.dueDate || '',
-    a.currency || (user ? user.currency : 'INR') || 'INR',
-    a.accountNumberLast4 || '',
-    a.ownerEmail || (user ? user.email : '')
-  ]);
-  const accData = [accHeader, ...accRows];
-
-  // 3. Categories
-  const catHeader = ['ID', 'Name', 'Icon', 'Color', 'Type', 'Budget Limit', 'User Email', 'Is Global'];
-  const catRows = categories.map(c => [
-    c.id || '',
-    c.name || '',
-    c.icon || '',
-    c.color || '',
-    c.type || 'expense',
-    c.budgetLimit || 0,
-    c.userEmail || (user ? user.email : ''),
-    c.isGlobal ? 'YES' : 'NO'
-  ]);
-  const catData = [catHeader, ...catRows];
-
-  // 4. Loans
-  const loanHeader = ['ID', 'Name', 'Lender', 'Total Principal', 'Remaining Principal', 'Interest Rate %', 'Monthly EMI', 'Total Tenure (Months)', 'Paid Tenure (Months)', 'Linked Account ID', 'Next Due Date', 'Status'];
-  const loanRows = loans.map(l => [
-    l.id || '',
-    l.name || '',
-    l.lender || '',
-    l.totalPrincipal || 0,
-    l.remainingPrincipal || 0,
-    l.interestRate || 0,
-    l.monthlyEMI || 0,
-    l.totalTenureMonths || 0,
-    l.paidTenureMonths || 0,
-    l.linkedAccountId || '',
-    l.nextDueDate || '',
-    l.status || 'active'
-  ]);
-  const loanData = [loanHeader, ...loanRows];
-
-  // 5. Rules
-  const ruleHeader = ['ID', 'Rule Name', 'Keyword(s)', 'Match Type', 'Category ID', 'Account ID', 'Enabled', 'Match Count'];
-  const ruleRows = rules.map(r => [
-    r.id || '',
-    r.name || '',
-    r.keyword || '',
-    r.matchType || 'contains',
-    r.categoryId || '',
-    r.accountId || '',
-    r.isEnabled ? 'TRUE' : 'FALSE',
-    r.matchCount || 0
-  ]);
-  const ruleData = [ruleHeader, ...ruleRows];
-
-  // 6. Overview & Metadata
-  const overviewData = [
-    ['SpendWise Google Sheets Sync Ledger', ''],
-    ['Last Synchronized (UTC)', new Date().toISOString()],
-    ['Owner Email', user ? user.email : ''],
-    ['Owner Name', user ? user.name : ''],
-    ['Total Accounts', accounts.length],
-    ['Total Transactions', transactions.length],
-    ['Total Categories', categories.length],
-    ['Total Loans & EMIs', loans.length],
-    ['Total Auto-Categorization Rules', rules.length],
-    ['', ''],
-    ['Notice', 'This sheet is private to your Google Account. Changes in SpendWise sync here.']
-  ];
-
-  // Batch Update Values in Sheets
-  const batchValueUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`;
-  const batchPayload = {
-    valueInputOption: 'USER_ENTERED',
-    data: [
-      { range: 'Transactions!A1:K', values: txData },
-      { range: 'Accounts!A1:J', values: accData },
-      { range: 'Categories!A1:H', values: catData },
-      { range: 'Loans & EMIs!A1:L', values: loanData },
-      { range: 'Rules!A1:H', values: ruleData },
-      { range: 'Overview & Sync Info!A1:B', values: overviewData }
-    ]
-  };
-
-  const response = await fetch(batchValueUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(batchPayload)
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    if (response.status === 403) {
-      clearCachedGSheetToken();
-      throw new Error('Permission Denied (403): Your Google account token does not have permission to edit this spreadsheet. Please reconnect with full permissions or use the Manual Web App option.');
-    }
-    throw new Error(`Google Sheets batch update failed: ${errText}`);
-  }
-
-  const sheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
-
-  return {
-    success: true,
-    message: `Successfully synchronized ${transactions.length} transactions and ${accounts.length} accounts to Google Sheets!`,
-    spreadsheetId,
-    spreadsheetUrl: sheetUrl,
-    syncedCount: {
-      accounts: accounts.length,
-      transactions: transactions.length,
-      categories: categories.length,
-      loans: loans.length,
-      rules: rules.length
-    }
-  };
-}
-
-// Fetch and restore data from Google Sheets into SpendWise
-export async function pullDataFromGoogleSheets(
-  token: string,
-  spreadsheetId: string
-): Promise<{
-  accounts?: any[];
-  transactions?: any[];
-  categories?: any[];
-  loans?: any[];
-  rules?: any[];
-}> {
-  const batchGetUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet?ranges=Transactions!A1:K&ranges=Accounts!A1:J&ranges=Categories!A1:H&ranges=Loans%20%26%20EMIs!A1:L&ranges=Rules!A1:H`;
-
-  const res = await fetch(batchGetUrl, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    if (res.status === 403) {
-      clearCachedGSheetToken();
-      throw new Error('Permission Denied (403): Cannot read from this Google Sheet. Please reconnect or use the Manual Web App method.');
-    }
-    throw new Error(`Failed to read data from Google Sheet: ${errText}`);
-  }
-
-  const data = await res.json();
-  const valueRanges = data.valueRanges || [];
-
-  const result: any = {};
-
-  valueRanges.forEach((rangeObj: any) => {
-    const range = rangeObj.range || '';
-    const rows = rangeObj.values || [];
-    if (rows.length <= 1) return; // only headers or empty
-
-    const dataRows = rows.slice(1);
-
-    if (range.startsWith('Transactions')) {
-      result.transactions = dataRows.map((r: any[]) => ({
-        id: r[0] || `tx_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-        date: r[1] || new Date().toISOString().split('T')[0],
-        time: r[2] || '',
-        title: r[3] || 'Untitled Expense',
-        amount: parseFloat(r[4]) || 0,
-        type: (r[5] || 'expense') as any,
-        accountId: r[6] || '',
-        categoryId: r[7] || '',
-        notes: r[8] || '',
-        createdBy: r[9] || '',
-        updatedAt: r[10] || new Date().toISOString()
-      }));
-    } else if (range.startsWith('Accounts')) {
-      result.accounts = dataRows.map((r: any[]) => ({
-        id: r[0] || `acc_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-        name: r[1] || 'Account',
-        type: (r[2] || 'bank') as any,
-        balance: parseFloat(r[3]) || 0,
-        creditLimit: parseFloat(r[4]) || undefined,
-        dueAmount: parseFloat(r[5]) || undefined,
-        dueDate: r[6] || undefined,
-        currency: r[7] || 'INR',
-        accountNumberLast4: r[8] || '',
-        ownerEmail: r[9] || '',
-        sharedWith: [],
-        color: '#3B82F6'
-      }));
-    } else if (range.startsWith('Categories')) {
-      result.categories = dataRows.map((r: any[]) => ({
-        id: r[0] || `cat_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-        name: r[1] || 'Category',
-        icon: r[2] || 'Tag',
-        color: r[3] || '#6B7280',
-        type: (r[4] || 'expense') as any,
-        budgetLimit: parseFloat(r[5]) || undefined,
-        userEmail: r[6] || '',
-        isGlobal: r[7] === 'YES'
-      }));
-    } else if (range.startsWith('Loans')) {
-      result.loans = dataRows.map((r: any[]) => ({
-        id: r[0] || `loan_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-        name: r[1] || 'Loan',
-        lender: r[2] || '',
-        totalPrincipal: parseFloat(r[3]) || 0,
-        remainingPrincipal: parseFloat(r[4]) || 0,
-        interestRate: parseFloat(r[5]) || 0,
-        monthlyEMI: parseFloat(r[6]) || 0,
-        totalTenureMonths: parseInt(r[7], 10) || 0,
-        paidTenureMonths: parseInt(r[8], 10) || 0,
-        linkedAccountId: r[9] || '',
-        nextDueDate: r[10] || '',
-        status: (r[11] || 'active') as any,
-        userEmail: '',
-        category: 'Personal'
-      }));
-    } else if (range.startsWith('Rules')) {
-      result.rules = dataRows.map((r: any[]) => ({
-        id: r[0] || `rule_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-        name: r[1] || 'Rule',
-        keyword: r[2] || '',
-        matchType: (r[3] || 'contains') as any,
-        categoryId: r[4] || '',
-        accountId: r[5] || undefined,
-        isEnabled: r[6] === 'TRUE',
-        matchCount: parseInt(r[7], 10) || 0,
-        createdAt: new Date().toISOString()
-      }));
-    }
-  });
-
-  return result;
-}
-
