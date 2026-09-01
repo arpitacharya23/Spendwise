@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Cloud, 
   FileSpreadsheet, 
@@ -74,7 +74,29 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({
   const [isConnectingGSheet, setIsConnectingGSheet] = useState(false);
   const [isSyncingGSheet, setIsSyncingGSheet] = useState(false);
   const [isPullingGSheet, setIsPullingGSheet] = useState(false);
+  const [isAutoSyncing, setIsAutoSyncing] = useState(false);
   const [gsheetStatusMessage, setGsheetStatusMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      setGsheetConfig(getStoredGSheetConfig());
+      setPref(getStoredDatabasePreference());
+    };
+    const handleAutoSyncStart = () => setIsAutoSyncing(true);
+    const handleAutoSyncEnd = () => setIsAutoSyncing(false);
+
+    window.addEventListener('spendwise_gsheet_sync_updated', handleUpdate);
+    window.addEventListener('spendwise_data_modified', handleUpdate);
+    window.addEventListener('spendwise_auto_sync_start', handleAutoSyncStart);
+    window.addEventListener('spendwise_auto_sync_end', handleAutoSyncEnd);
+
+    return () => {
+      window.removeEventListener('spendwise_gsheet_sync_updated', handleUpdate);
+      window.removeEventListener('spendwise_data_modified', handleUpdate);
+      window.removeEventListener('spendwise_auto_sync_start', handleAutoSyncStart);
+      window.removeEventListener('spendwise_auto_sync_end', handleAutoSyncEnd);
+    };
+  }, []);
 
   const handleTogglePreference = (target: 'cloud' | 'sheets') => {
     const updated: DatabasePreference = {
@@ -420,19 +442,32 @@ export const DatabaseView: React.FC<DatabaseViewProps> = ({
                 </div>
 
                 <div className={`text-xs flex items-center justify-between py-1.5 px-2.5 rounded-lg border ${
-                  isGoogleSheetsSynced()
+                  isAutoSyncing
+                    ? 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800'
+                    : isGoogleSheetsSynced()
                     ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
                     : 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
                 }`}>
                   <div className="flex items-center gap-1.5">
-                    <span className={`w-2 h-2 rounded-full ${isGoogleSheetsSynced() ? 'bg-emerald-500' : 'bg-amber-400'}`} />
-                    <span className="font-semibold text-[11px]">
-                      {isGoogleSheetsSynced() ? 'All data synced' : 'Changes pending sync'}
-                    </span>
+                    {isAutoSyncing ? (
+                      <>
+                        <RefreshCw className="w-3 h-3 text-blue-600 animate-spin" />
+                        <span className="font-semibold text-[11px] text-blue-700 dark:text-blue-300">
+                          Auto-syncing changes to Google Sheet...
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className={`w-2 h-2 rounded-full ${isGoogleSheetsSynced() ? 'bg-emerald-500' : 'bg-amber-400'}`} />
+                        <span className="font-semibold text-[11px]">
+                          {isGoogleSheetsSynced() ? 'All data synced • Auto-sync active' : 'Changes pending auto-sync (Yellow circle)'}
+                        </span>
+                      </>
+                    )}
                   </div>
-                  {gsheetConfig.lastSyncedAt && (
+                  {gsheetConfig.lastSyncedAt && !isAutoSyncing && (
                     <span className="text-[10px] opacity-75">
-                      {new Date(gsheetConfig.lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      Last sync: {new Date(gsheetConfig.lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   )}
                 </div>

@@ -227,6 +227,81 @@ export function clearCachedGSheetToken() {
   tokenExpiresAt = 0;
 }
 
+let isAutoSyncInProgress = false;
+
+export function isAutoSyncRunning(): boolean {
+  return isAutoSyncInProgress;
+}
+
+/**
+ * Automatically synchronizes pending local SpendWise data to Google Sheets
+ * without requiring manual user button clicks.
+ */
+export async function autoSyncToGoogleSheets(data: {
+  accounts: any[];
+  transactions: any[];
+  categories: any[];
+  loans: any[];
+  rules: any[];
+  user: any;
+}): Promise<GoogleSheetsSyncResult | null> {
+  const pref = getStoredDatabasePreference();
+  if (!pref.useGoogleSheets) {
+    return null;
+  }
+
+  const config = getStoredGSheetConfig();
+  if (!config || (!config.webAppUrl && !config.spreadsheetId)) {
+    return null;
+  }
+
+  if (isAutoSyncInProgress) {
+    return null;
+  }
+
+  isAutoSyncInProgress = true;
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('spendwise_auto_sync_start'));
+  }
+
+  try {
+    let result: GoogleSheetsSyncResult | null = null;
+    if (config.connectionType === 'webapp' || config.webAppUrl) {
+      result = await syncAllDataViaWebApp(config.webAppUrl, data);
+    } else {
+      const token = getCachedGSheetToken();
+      if (!token) {
+        // OAuth token not in memory; cannot sync silently without user gesture
+        return null;
+      }
+      const sheetId = config.spreadsheetId;
+      if (!sheetId) {
+        return null;
+      }
+      result = await syncAllDataToGoogleSheets(token, sheetId, data);
+    }
+
+    if (result && result.success) {
+      const updatedConfig: GoogleSheetsSyncConfig = {
+        ...config,
+        lastSyncedAt: new Date().toISOString(),
+        autoSync: true
+      };
+      saveStoredGSheetConfig(updatedConfig);
+    }
+    return result;
+  } catch (err: any) {
+    console.warn('Auto-sync to Google Sheets encountered an issue:', err);
+    return null;
+  } finally {
+    isAutoSyncInProgress = false;
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('spendwise_auto_sync_end'));
+      window.dispatchEvent(new CustomEvent('spendwise_gsheet_sync_updated'));
+    }
+  }
+}
+
 // Ready-to-copy Google Apps Script source code
 export const SPENDWISE_APPS_SCRIPT_CODE = `/**
  * SpendWise Google Sheets Personal Sync Script

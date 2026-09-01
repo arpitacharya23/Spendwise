@@ -8,7 +8,8 @@ import {
   Eye,
   EyeOff,
   SlidersHorizontal,
-  Database
+  Database,
+  RefreshCw
 } from 'lucide-react';
 import { 
   currentUser, 
@@ -58,7 +59,12 @@ import { supabase } from './lib/supabase';
 import { 
   getGoogleSheetSyncStatus,
   GoogleSheetSyncState,
-  markDataModified 
+  markDataModified,
+  autoSyncToGoogleSheets,
+  getStoredDatabasePreference,
+  getStoredGSheetConfig,
+  isGoogleSheetsSynced,
+  isGoogleSheetsConnected
 } from './lib/googleSheetsService';
 import { 
   getSupabaseProfile, 
@@ -174,23 +180,111 @@ export default function App() {
 
   // Google Sheets sync status: 'synced' (Green circle), 'pending' (Yellow circle), 'disconnected' (No circle)
   const [gsheetSyncState, setGsheetSyncState] = useState<GoogleSheetSyncState>(() => getGoogleSheetSyncStatus());
+  const [isAutoSyncingSheets, setIsAutoSyncingSheets] = useState(false);
+  const autoSyncTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Keep latest application data in ref for background auto-sync executions
+  const dataRef = useRef({
+    accounts,
+    transactions,
+    categories,
+    loans,
+    rules,
+    user
+  });
+
+  useEffect(() => {
+    dataRef.current = {
+      accounts,
+      transactions,
+      categories,
+      loans,
+      rules,
+      user
+    };
+  }, [accounts, transactions, categories, loans, rules, user]);
 
   const checkSyncStatus = useCallback(() => {
     setGsheetSyncState(getGoogleSheetSyncStatus());
   }, []);
 
+  // Automatic Google Sheets synchronizer whenever changes occur or sync is pending
+  const triggerGoogleSheetsAutoSync = useCallback((immediate = false) => {
+    const pref = getStoredDatabasePreference();
+    const config = getStoredGSheetConfig();
+    const isConnected = isGoogleSheetsConnected();
+
+    if (!pref.useGoogleSheets || !isConnected) {
+      return;
+    }
+
+    if (autoSyncTimerRef.current) {
+      clearTimeout(autoSyncTimerRef.current);
+    }
+
+    const runSync = async () => {
+      // Check if pending changes exist or explicit immediate sync requested
+      if (!isGoogleSheetsSynced() || immediate) {
+        try {
+          setIsAutoSyncingSheets(true);
+          await autoSyncToGoogleSheets(dataRef.current);
+        } catch (err) {
+          console.warn('Auto-sync execution error:', err);
+        } finally {
+          setIsAutoSyncingSheets(false);
+          checkSyncStatus();
+        }
+      }
+    };
+
+    if (immediate) {
+      runSync();
+    } else {
+      // Debounce by 1200ms to batch rapid mutations (e.g., adding multiple transactions or rules)
+      autoSyncTimerRef.current = setTimeout(runSync, 1200);
+    }
+  }, [checkSyncStatus]);
+
   useEffect(() => {
     checkSyncStatus();
-    const handleSyncUpdate = () => checkSyncStatus();
+
+    const handleSyncUpdate = () => {
+      checkSyncStatus();
+    };
+
+    const handleDataModified = () => {
+      checkSyncStatus();
+      triggerGoogleSheetsAutoSync(false);
+    };
+
+    const handleAutoSyncStart = () => setIsAutoSyncingSheets(true);
+    const handleAutoSyncEnd = () => {
+      setIsAutoSyncingSheets(false);
+      checkSyncStatus();
+    };
+
+    // On initial mount or reconnect, if there is a pending sync in Google Sheets, run auto-sync immediately
+    if (isGoogleSheetsConnected() && getStoredDatabasePreference().useGoogleSheets && !isGoogleSheetsSynced()) {
+      triggerGoogleSheetsAutoSync(false);
+    }
+
     window.addEventListener('spendwise_gsheet_sync_updated', handleSyncUpdate);
-    window.addEventListener('spendwise_data_modified', handleSyncUpdate);
+    window.addEventListener('spendwise_data_modified', handleDataModified);
+    window.addEventListener('spendwise_auto_sync_start', handleAutoSyncStart);
+    window.addEventListener('spendwise_auto_sync_end', handleAutoSyncEnd);
     window.addEventListener('storage', handleSyncUpdate);
+
     return () => {
       window.removeEventListener('spendwise_gsheet_sync_updated', handleSyncUpdate);
-      window.removeEventListener('spendwise_data_modified', handleSyncUpdate);
+      window.removeEventListener('spendwise_data_modified', handleDataModified);
+      window.removeEventListener('spendwise_auto_sync_start', handleAutoSyncStart);
+      window.removeEventListener('spendwise_auto_sync_end', handleAutoSyncEnd);
       window.removeEventListener('storage', handleSyncUpdate);
+      if (autoSyncTimerRef.current) {
+        clearTimeout(autoSyncTimerRef.current);
+      }
     };
-  }, [checkSyncStatus]);
+  }, [checkSyncStatus, triggerGoogleSheetsAutoSync]);
 
   // Active navigation tab
   const [activeTab, setActiveTab] = useState<string>('dashboard');
@@ -1528,10 +1622,12 @@ export default function App() {
                 onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
                 id="top-profile-menu-button"
                 title={
-                  gsheetSyncState === 'synced'
+                  isAutoSyncingSheets
+                    ? "Google Sheets: Auto-syncing pending changes..."
+                    : gsheetSyncState === 'synced'
                     ? "Google Sheets: All data is synced"
                     : gsheetSyncState === 'pending'
-                    ? "Google Sheets: New data to be synced"
+                    ? "Google Sheets: New changes auto-syncing..."
                     : (user.name || "User Profile")
                 }
                 className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-slate-100 border border-slate-200/80 bg-white shadow-xs transition group cursor-pointer"
@@ -1544,7 +1640,9 @@ export default function App() {
                       src={user.avatarUrl}
                       alt={user.name}
                       className={`w-7 h-7 rounded-full object-cover flex-shrink-0 transition-all duration-200 ${
-                        gsheetSyncState === 'synced' 
+                        isAutoSyncingSheets
+                          ? 'ring-[2px] ring-blue-500 ring-offset-1 ring-offset-white animate-pulse'
+                          : gsheetSyncState === 'synced' 
                           ? 'ring-[1.5px] ring-emerald-500 ring-offset-1 ring-offset-white' 
                           : gsheetSyncState === 'pending'
                           ? 'ring-[1.5px] ring-amber-400 ring-offset-1 ring-offset-white'
@@ -1555,7 +1653,9 @@ export default function App() {
                   ) : (
                     <div
                       className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-xs flex-shrink-0 transition-all duration-200 ${
-                        gsheetSyncState === 'synced' 
+                        isAutoSyncingSheets
+                          ? 'ring-[2px] ring-blue-500 ring-offset-1 ring-offset-white animate-pulse'
+                          : gsheetSyncState === 'synced' 
                           ? 'ring-[1.5px] ring-emerald-500 ring-offset-1 ring-offset-white' 
                           : gsheetSyncState === 'pending'
                           ? 'ring-[1.5px] ring-amber-400 ring-offset-1 ring-offset-white'
@@ -1566,15 +1666,6 @@ export default function App() {
                       {(user.name || user.email || 'U').split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U'}
                     </div>
                   )}
-                  {/* Status indicator dot - only visible when a Google Sheet is connected */}
-                  {/*gsheetSyncState !== 'disconnected' && (
-                    <span
-                      className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-1 ring-white shadow-xs ${
-                        gsheetSyncState === 'synced' ? 'bg-emerald-500' : 'bg-amber-400'
-                      }`}
-                      title={gsheetSyncState === 'synced' ? "Google Sheets: Synced" : "Google Sheets: Sync pending"}
-                    />
-                  )*/}
                 </div>
                 <span className="text-xs font-bold text-slate-800 hidden sm:inline-block max-w-[130px] truncate">
                   {user.name || 'User'}
@@ -1594,7 +1685,9 @@ export default function App() {
                             src={user.avatarUrl}
                             alt={user.name}
                             className={`w-10 h-10 rounded-full object-cover flex-shrink-0 transition-all duration-200 ${
-                              gsheetSyncState === 'synced' 
+                              isAutoSyncingSheets
+                                ? 'ring-2 ring-blue-500 ring-offset-1 ring-offset-white animate-pulse'
+                                : gsheetSyncState === 'synced' 
                                 ? 'ring-[1.5px] ring-emerald-500 ring-offset-1 ring-offset-white' 
                                 : gsheetSyncState === 'pending'
                                 ? 'ring-[1.5px] ring-amber-400 ring-offset-1 ring-offset-white'
@@ -1605,7 +1698,9 @@ export default function App() {
                         ) : (
                           <div
                             className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shadow flex-shrink-0 transition-all duration-200 ${
-                              gsheetSyncState === 'synced' 
+                              isAutoSyncingSheets
+                                ? 'ring-2 ring-blue-500 ring-offset-1 ring-offset-white animate-pulse'
+                                : gsheetSyncState === 'synced' 
                                 ? 'ring-[1.5px] ring-emerald-500 ring-offset-1 ring-offset-white' 
                                 : gsheetSyncState === 'pending'
                                 ? 'ring-[1.5px] ring-amber-400 ring-offset-1 ring-offset-white'
@@ -1616,13 +1711,6 @@ export default function App() {
                             {(user.name || user.email || 'U').split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U'}
                           </div>
                         )}
-                        {/*gsheetSyncState !== 'disconnected' && (
-                          <span
-                            className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-1.5 ring-white shadow-xs ${
-                              gsheetSyncState === 'synced' ? 'bg-emerald-500' : 'bg-amber-400'
-                            }`}
-                          />
-                        )*/}
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-bold text-slate-900 truncate">{user.name}</p>
@@ -1639,14 +1727,25 @@ export default function App() {
                                 setIsDatabaseModalOpen(true);
                               }}
                               className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded border transition cursor-pointer ${
-                                gsheetSyncState === 'synced'
+                                isAutoSyncingSheets
+                                  ? 'bg-blue-50 text-blue-700 border-blue-200 animate-pulse'
+                                  : gsheetSyncState === 'synced'
                                   ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
                                   : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
                               }`}
                               title="Click to manage Database & Google Sheets sync settings"
                             >
-                              <span className={`w-1.5 h-1.5 rounded-full ${gsheetSyncState === 'synced' ? 'bg-emerald-500' : 'bg-amber-400'}`} />
-                              <span>{gsheetSyncState === 'synced' ? 'Google Sheets Synced' : 'Sync Pending'}</span>
+                              {isAutoSyncingSheets ? (
+                                <>
+                                  <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                                  <span>Auto-Syncing...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${gsheetSyncState === 'synced' ? 'bg-emerald-500' : 'bg-amber-400'}`} />
+                                  <span>{gsheetSyncState === 'synced' ? 'Auto-Sync Active (Synced)' : 'Sync Pending'}</span>
+                                </>
+                              )}
                             </button>
                           )}
                         </div>
