@@ -10,7 +10,14 @@ import {
   X,
   Database,
   Trash2,
-  Unlink
+  Copy,
+  Check,
+  Code,
+  ShieldCheck,
+  Sparkles,
+  ChevronRight,
+  HelpCircle,
+  Link as LinkIcon
 } from 'lucide-react';
 import { UserProfile, Account, Transaction, Category, LoanEMI, TransactionRule } from '../types';
 import { 
@@ -24,8 +31,13 @@ import {
   getOrCreateSpendwiseSpreadsheet,
   syncAllDataToGoogleSheets,
   pullDataFromGoogleSheets,
+  testWebAppConnection,
+  syncAllDataViaWebApp,
+  pullDataViaWebApp,
   isGoogleSheetsSynced,
-  GoogleSheetsSyncConfig
+  GoogleSheetsSyncConfig,
+  SPENDWISE_APPS_SCRIPT_CODE,
+  GSheetConnectionType
 } from '../lib/googleSheetsService';
 
 interface DatabaseModalProps {
@@ -60,6 +72,13 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({
   const [pref, setPref] = useState<DatabasePreference>(() => getStoredDatabasePreference());
   const [gsheetConfig, setGsheetConfig] = useState<GoogleSheetsSyncConfig>(() => getStoredGSheetConfig());
   
+  // Connection sub-tab: 'manual' (Web App) vs 'oauth' (Google automatic)
+  const [connectMethod, setConnectMethod] = useState<'manual' | 'oauth'>('manual');
+  const [manualWebAppUrl, setManualWebAppUrl] = useState(gsheetConfig.webAppUrl || '');
+  const [manualSpreadsheetUrl, setManualSpreadsheetUrl] = useState(gsheetConfig.spreadsheetUrl || '');
+  const [hasCopiedScript, setHasCopiedScript] = useState(false);
+  const [showScriptModal, setShowScriptModal] = useState(false);
+
   const [isConnectingGSheet, setIsConnectingGSheet] = useState(false);
   const [isSyncingGSheet, setIsSyncingGSheet] = useState(false);
   const [isPullingGSheet, setIsPullingGSheet] = useState(false);
@@ -83,18 +102,89 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({
     saveStoredDatabasePreference(updated);
   };
 
-  const handleConnectGoogleSheets = async () => {
+  const handleCopyScript = () => {
+    navigator.clipboard.writeText(SPENDWISE_APPS_SCRIPT_CODE);
+    setHasCopiedScript(true);
+    setTimeout(() => setHasCopiedScript(false), 3000);
+  };
+
+  // 1. Connect via Manual Apps Script Web App
+  const handleConnectManualWebApp = async () => {
+    if (!manualWebAppUrl.trim()) {
+      setGsheetStatusMessage({
+        type: 'error',
+        text: 'Please paste your Google Apps Script Web App URL.'
+      });
+      return;
+    }
+
+    setIsConnectingGSheet(true);
+    setGsheetStatusMessage(null);
+
+    try {
+      // Test the Web App endpoint
+      const testRes = await testWebAppConnection(manualWebAppUrl);
+
+      // Perform initial synchronization of existing local records to user's sheet
+      const syncRes = await syncAllDataViaWebApp(manualWebAppUrl, {
+        accounts,
+        transactions,
+        categories,
+        loans,
+        rules,
+        user
+      });
+
+      const newConfig: GoogleSheetsSyncConfig = {
+        ...gsheetConfig,
+        connectionType: 'webapp',
+        webAppUrl: manualWebAppUrl.trim(),
+        spreadsheetId: testRes.spreadsheetId || gsheetConfig.spreadsheetId,
+        spreadsheetUrl: manualSpreadsheetUrl.trim() || testRes.spreadsheetUrl || gsheetConfig.spreadsheetUrl,
+        lastSyncedAt: new Date().toISOString(),
+        autoSync: true
+      };
+
+      setGsheetConfig(newConfig);
+      saveStoredGSheetConfig(newConfig);
+
+      if (!pref.useGoogleSheets) {
+        const newPref = { ...pref, useGoogleSheets: true };
+        setPref(newPref);
+        saveStoredDatabasePreference(newPref);
+      }
+
+      setGsheetStatusMessage({
+        type: 'success',
+        text: `Connected! ${syncRes.message}`
+      });
+    } catch (err: any) {
+      console.error('Manual Web App connection error:', err);
+      setGsheetStatusMessage({
+        type: 'error',
+        text: err?.message || 'Failed to connect to Google Apps Script Web App. Please check the URL and permissions.'
+      });
+    } finally {
+      setIsConnectingGSheet(false);
+    }
+  };
+
+  // 2. Connect via Automatic Google OAuth
+  const handleConnectGoogleOAuth = async (forceConsent = true) => {
     setIsConnectingGSheet(true);
     setGsheetStatusMessage(null);
     try {
-      const token = await requestGoogleOAuthToken();
+      const token = await requestGoogleOAuthToken(forceConsent);
       const sheet = await getOrCreateSpendwiseSpreadsheet(token, `SpendWise Ledger - ${user.name || 'Personal'}`);
 
       const newConfig: GoogleSheetsSyncConfig = {
         ...gsheetConfig,
+        connectionType: 'oauth',
         spreadsheetId: sheet.id,
         spreadsheetUrl: sheet.url,
-        lastSyncedAt: new Date().toISOString()
+        webAppUrl: undefined,
+        lastSyncedAt: new Date().toISOString(),
+        autoSync: true
       };
       setGsheetConfig(newConfig);
       saveStoredGSheetConfig(newConfig);
@@ -119,48 +209,67 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({
         text: `Connected! ${syncRes.message}` 
       });
     } catch (err: any) {
-      console.error('Google Sheets connection error:', err);
+      console.error('Google Sheets OAuth connection error:', err);
       setGsheetStatusMessage({ 
         type: 'error', 
-        text: err?.message || 'Failed to connect Google Sheets.' 
+        text: err?.message || 'Failed to connect Google Sheets. Consider using the Manual Web App option.' 
       });
     } finally {
       setIsConnectingGSheet(false);
     }
   };
 
+  // Unified Sync Handler
   const handleSyncToSheets = async () => {
     setIsSyncingGSheet(true);
     setGsheetStatusMessage(null);
     try {
-      const token = await requestGoogleOAuthToken();
+      if (gsheetConfig.connectionType === 'webapp' || gsheetConfig.webAppUrl) {
+        // Sync via Web App
+        const res = await syncAllDataViaWebApp(gsheetConfig.webAppUrl!, {
+          accounts,
+          transactions,
+          categories,
+          loans,
+          rules,
+          user
+        });
+        const updatedConfig = {
+          ...gsheetConfig,
+          lastSyncedAt: new Date().toISOString()
+        };
+        setGsheetConfig(updatedConfig);
+        saveStoredGSheetConfig(updatedConfig);
+        setGsheetStatusMessage({ type: 'success', text: res.message });
+      } else {
+        // Sync via OAuth
+        const token = await requestGoogleOAuthToken();
+        let targetSheetId = gsheetConfig.spreadsheetId;
+        if (!targetSheetId) {
+          const sheet = await getOrCreateSpendwiseSpreadsheet(token, `SpendWise Ledger - ${user.name || 'Personal'}`);
+          targetSheetId = sheet.id;
+          const newConfig = { ...gsheetConfig, spreadsheetId: sheet.id, spreadsheetUrl: sheet.url };
+          setGsheetConfig(newConfig);
+          saveStoredGSheetConfig(newConfig);
+        }
 
-      let targetSheetId = gsheetConfig.spreadsheetId;
-      if (!targetSheetId) {
-        const sheet = await getOrCreateSpendwiseSpreadsheet(token, `SpendWise Ledger - ${user.name || 'Personal'}`);
-        targetSheetId = sheet.id;
-        const newConfig = { ...gsheetConfig, spreadsheetId: sheet.id, spreadsheetUrl: sheet.url };
-        setGsheetConfig(newConfig);
-        saveStoredGSheetConfig(newConfig);
+        const res = await syncAllDataToGoogleSheets(token, targetSheetId, {
+          accounts,
+          transactions,
+          categories,
+          loans,
+          rules,
+          user
+        });
+
+        const updatedConfig = {
+          ...gsheetConfig,
+          lastSyncedAt: new Date().toISOString()
+        };
+        setGsheetConfig(updatedConfig);
+        saveStoredGSheetConfig(updatedConfig);
+        setGsheetStatusMessage({ type: 'success', text: res.message });
       }
-
-      const res = await syncAllDataToGoogleSheets(token, targetSheetId, {
-        accounts,
-        transactions,
-        categories,
-        loans,
-        rules,
-        user
-      });
-
-      const updatedConfig = {
-        ...gsheetConfig,
-        lastSyncedAt: new Date().toISOString()
-      };
-      setGsheetConfig(updatedConfig);
-      saveStoredGSheetConfig(updatedConfig);
-
-      setGsheetStatusMessage({ type: 'success', text: res.message });
     } catch (err: any) {
       setGsheetStatusMessage({ type: 'error', text: err?.message || 'Sync failed.' });
     } finally {
@@ -168,13 +277,19 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({
     }
   };
 
+  // Unified Restore / Pull Handler
   const handlePullFromSheets = async () => {
-    if (!gsheetConfig.spreadsheetId) return;
+    if (!gsheetConfig.webAppUrl && !gsheetConfig.spreadsheetId) return;
     setIsPullingGSheet(true);
     setGsheetStatusMessage(null);
     try {
-      const token = await requestGoogleOAuthToken();
-      const sheetData = await pullDataFromGoogleSheets(token, gsheetConfig.spreadsheetId);
+      let sheetData: any = {};
+      if (gsheetConfig.connectionType === 'webapp' || gsheetConfig.webAppUrl) {
+        sheetData = await pullDataViaWebApp(gsheetConfig.webAppUrl!);
+      } else {
+        const token = await requestGoogleOAuthToken();
+        sheetData = await pullDataFromGoogleSheets(token, gsheetConfig.spreadsheetId!);
+      }
 
       if (onRestoreFromSheets) {
         onRestoreFromSheets(sheetData);
@@ -189,7 +304,7 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({
 
       setGsheetStatusMessage({
         type: 'success',
-        text: `Restored ${sheetData.transactions?.length || 0} transactions and ${sheetData.accounts?.length || 0} accounts.`
+        text: `Restored ${sheetData.transactions?.length || 0} transactions and ${sheetData.accounts?.length || 0} accounts from Google Sheet.`
       });
     } catch (err: any) {
       setGsheetStatusMessage({ type: 'error', text: err?.message || 'Failed to restore data from Google Sheets.' });
@@ -201,23 +316,27 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({
   const handleRemoveGoogleSheet = () => {
     clearStoredGSheetConfig();
     setGsheetConfig({ autoSync: false });
+    setManualWebAppUrl('');
+    setManualSpreadsheetUrl('');
     setShowRemoveConfirm(false);
     setGsheetStatusMessage({
       type: 'info',
-      text: 'Google Sheet disconnected from this device.'
+      text: 'Google Sheet disconnected from SpendWise.'
     });
   };
 
+  const isConnected = Boolean(gsheetConfig.webAppUrl || gsheetConfig.spreadsheetId);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] flex flex-col">
         {/* Modal Header */}
-        <div className="flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-800">
+        <div className="flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-800 shrink-0">
           <div className="flex items-center gap-2">
             <div className="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400">
               <Database className="w-4 h-4" />
             </div>
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white">Database & Storage</h3>
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white">Database & Storage Settings</h3>
           </div>
           <button
             type="button"
@@ -229,9 +348,10 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({
         </div>
 
         {/* Modal Body */}
-        <div className="p-4 space-y-3">
-          {/* Cloud Storage Option */}
-          <div className={`rounded-xl border-2 transition-all p-4 bg-slate-50/50 dark:bg-slate-800/40 flex items-center justify-between ${
+        <div className="p-4 space-y-4 overflow-y-auto flex-1 text-slate-700 dark:text-slate-300">
+          
+          {/* Cloud Storage (Supabase) */}
+          <div className={`rounded-xl border-2 transition-all p-3.5 bg-slate-50/50 dark:bg-slate-800/40 flex items-center justify-between ${
             pref.useCloudStorage 
               ? 'border-blue-500 ring-1 ring-blue-500/50' 
               : 'border-slate-200 dark:border-slate-700/60'
@@ -248,7 +368,6 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({
               </div>
             </div>
 
-            {/* Toggle Switch */}
             <button
               type="button"
               onClick={() => handleTogglePreference('cloud')}
@@ -267,8 +386,8 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({
             </button>
           </div>
 
-          {/* Google Sheets Option */}
-          <div className={`rounded-xl border-2 transition-all p-4 bg-slate-50/50 dark:bg-slate-800/40 space-y-3 ${
+          {/* Google Sheets Personal Storage Card */}
+          <div className={`rounded-xl border-2 transition-all p-4 bg-slate-50/50 dark:bg-slate-800/40 space-y-3.5 ${
             pref.useGoogleSheets 
               ? 'border-emerald-500 ring-1 ring-emerald-500/50' 
               : 'border-slate-200 dark:border-slate-700/60'
@@ -279,14 +398,13 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({
                   <FileSpreadsheet className="w-5 h-5" />
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold text-slate-900 dark:text-white">Google Sheets</h4>
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-white">Personal Google Sheet</h4>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Google Drive spreadsheet
+                    Sync & store transactions in your own spreadsheet
                   </p>
                 </div>
               </div>
 
-              {/* Toggle Switch */}
               <button
                 type="button"
                 onClick={() => handleTogglePreference('sheets')}
@@ -305,22 +423,29 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({
               </button>
             </div>
 
-            {/* Google Sheets Status Link & Sync State */}
-            {gsheetConfig.spreadsheetUrl && (
-              <div className="space-y-1.5">
-                <div className="text-[11px] flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-                  <span className="text-slate-500">Spreadsheet:</span>
-                  <a 
-                    href={gsheetConfig.spreadsheetUrl} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-emerald-600 hover:underline inline-flex items-center gap-1 font-semibold"
-                  >
-                    Open in Google Sheets
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
+            {/* If Connected: Show Active Sheet Info & Actions */}
+            {isConnected ? (
+              <div className="space-y-2 pt-1 border-t border-slate-200 dark:border-slate-700/60">
+                <div className="flex items-center justify-between text-[11px] p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center gap-1.5 truncate">
+                    <span className="font-semibold text-slate-700 dark:text-slate-200">Connection:</span>
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                      {gsheetConfig.connectionType === 'webapp' ? '⚡ Apps Script Web App' : '🔑 Google OAuth'}
+                    </span>
+                  </div>
+                  {gsheetConfig.spreadsheetUrl ? (
+                    <a 
+                      href={gsheetConfig.spreadsheetUrl} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-emerald-600 hover:underline inline-flex items-center gap-1 font-semibold shrink-0 ml-2"
+                    >
+                      Open Sheet <ExternalLink className="w-3 h-3" />
+                    </a>
+                  ) : null}
                 </div>
 
+                {/* Sync status badge */}
                 <div className={`text-[11px] flex items-center justify-between py-1.5 px-2.5 rounded-lg border ${
                   isGoogleSheetsSynced()
                     ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
@@ -338,6 +463,158 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({
                     </span>
                   )}
                 </div>
+
+                {/* Actions when connected */}
+                <div className="flex items-center justify-between gap-1.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleSyncToSheets}
+                    disabled={isSyncingGSheet || !pref.useGoogleSheets}
+                    className="flex-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <UploadCloud className="w-3.5 h-3.5" />
+                    {isSyncingGSheet ? 'Syncing...' : 'Sync Now'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handlePullFromSheets}
+                    disabled={isPullingGSheet || !pref.useGoogleSheets}
+                    className="flex-1 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <DownloadCloud className="w-3.5 h-3.5" />
+                    {isPullingGSheet ? 'Restoring...' : 'Restore'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowRemoveConfirm(true)}
+                    className="p-1.5 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                    title="Disconnect Google Sheet"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* If Not Connected: Method Selector (Manual Web App vs Automatic OAuth) */
+              <div className="space-y-3 pt-1">
+                <div className="flex rounded-lg bg-slate-200/70 dark:bg-slate-800 p-0.5 text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setConnectMethod('manual')}
+                    className={`flex-1 py-1.5 px-2 rounded-md transition flex items-center justify-center gap-1 cursor-pointer ${
+                      connectMethod === 'manual'
+                        ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                    }`}
+                  >
+                    <Sparkles className="w-3 h-3 text-emerald-500" />
+                    Manual (Apps Script)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConnectMethod('oauth')}
+                    className={`flex-1 py-1.5 px-2 rounded-md transition flex items-center justify-center gap-1 cursor-pointer ${
+                      connectMethod === 'oauth'
+                        ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-400 shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                    }`}
+                  >
+                    <ShieldCheck className="w-3 h-3 text-blue-500" />
+                    Automatic (OAuth)
+                  </button>
+                </div>
+
+                {/* Method A: Manual Web App (Recommended) */}
+                {connectMethod === 'manual' && (
+                  <div className="space-y-2.5 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-xs">
+                    <div className="space-y-1.5 text-[11px] text-slate-600 dark:text-slate-400">
+                      <div className="flex items-start gap-1.5">
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400">1.</span>
+                        <div className="flex-1 flex items-center justify-between">
+                          <span>Copy the SpendWise sync script:</span>
+                          <button
+                            type="button"
+                            onClick={handleCopyScript}
+                            className="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 transition flex items-center gap-1 cursor-pointer"
+                          >
+                            {hasCopiedScript ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                            {hasCopiedScript ? 'Copied!' : 'Copy Script Code'}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex items-start gap-1.5">
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400">2.</span>
+                        <span>
+                          Open your Google Sheet (or <a href="https://sheets.new" target="_blank" rel="noopener noreferrer" className="text-emerald-600 underline font-semibold">create new</a>), go to <strong>Extensions → Apps Script</strong>, paste the code, and click <strong>Deploy → New deployment → Web app</strong> (Execute as: <em>Me</em>, Access: <em>Anyone</em>).
+                        </span>
+                      </div>
+
+                      <div className="flex items-start gap-1.5">
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400">3.</span>
+                        <span>Paste your deployed Web App URL below:</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 pt-1">
+                      <input
+                        type="url"
+                        placeholder="https://script.google.com/macros/s/.../exec"
+                        value={manualWebAppUrl}
+                        onChange={(e) => setManualWebAppUrl(e.target.value)}
+                        className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono text-[11px]"
+                      />
+
+                      <input
+                        type="url"
+                        placeholder="Optional: Google Sheet link (e.g. https://docs.google.com/spreadsheets/d/...)"
+                        value={manualSpreadsheetUrl}
+                        onChange={(e) => setManualSpreadsheetUrl(e.target.value)}
+                        className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500 text-[11px]"
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleConnectManualWebApp}
+                      disabled={isConnectingGSheet || !manualWebAppUrl.trim()}
+                      className="w-full py-2 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs mt-1"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      {isConnectingGSheet ? 'Testing Connection...' : 'Connect Personal Sheet'}
+                    </button>
+                  </div>
+                )}
+
+                {/* Method B: Automatic OAuth */}
+                {connectMethod === 'oauth' && (
+                  <div className="space-y-2.5 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-xs">
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                      Sign in with Google to automatically create or link a <strong>SpendWise Financial Ledger</strong> spreadsheet in your Google Drive.
+                    </p>
+
+                    <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-[11px] text-blue-800 dark:text-blue-300 space-y-1">
+                      <p className="font-semibold flex items-center gap-1">
+                        <HelpCircle className="w-3.5 h-3.5 shrink-0" /> Important Permission Note:
+                      </p>
+                      <p>
+                        When the Google sign-in window appears, ensure you check the box granting SpendWise permission to <strong>"See, edit, create, and delete your spreadsheets"</strong> to prevent permission denied errors.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleConnectGoogleOAuth(true)}
+                      disabled={isConnectingGSheet}
+                      className="w-full py-2 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      {isConnectingGSheet ? 'Connecting via Google...' : 'Sign in & Connect with Google'}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -348,7 +625,7 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({
                   Disconnect current Google Sheet?
                 </p>
                 <p className="text-[11px] text-rose-700 dark:text-rose-300">
-                  This will unbind the current spreadsheet from SpendWise. Your file in Google Drive will remain safe.
+                  This will unbind the current spreadsheet from SpendWise. Your sheet data in Google Drive remains 100% safe.
                 </p>
                 <div className="flex items-center justify-end gap-2 pt-1">
                   <button
@@ -370,7 +647,7 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({
             )}
 
             {gsheetStatusMessage && (
-              <div className={`text-[11px] p-2 rounded-lg border flex items-start gap-1.5 ${
+              <div className={`text-[11px] p-2.5 rounded-lg border flex items-start gap-1.5 ${
                 gsheetStatusMessage.type === 'success' 
                   ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800' 
                   : gsheetStatusMessage.type === 'error'
@@ -378,70 +655,39 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({
                   : 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800'
               }`}>
                 <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                <span>{gsheetStatusMessage.text}</span>
+                <div className="space-y-1">
+                  <span>{gsheetStatusMessage.text}</span>
+                  {gsheetStatusMessage.type === 'error' && gsheetStatusMessage.text.includes('403') && (
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setConnectMethod('manual');
+                          setGsheetStatusMessage(null);
+                        }}
+                        className="text-emerald-700 dark:text-emerald-300 underline font-semibold text-[10px] cursor-pointer"
+                      >
+                        👉 Switch to Manual (Apps Script) connection option
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
-
-            {/* Google Sheets Action Buttons */}
-            <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
-              {!gsheetConfig.spreadsheetId ? (
-                <button
-                  type="button"
-                  onClick={handleConnectGoogleSheets}
-                  disabled={isConnectingGSheet}
-                  className="w-full py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5" />
-                  {isConnectingGSheet ? 'Connecting...' : 'Connect Google Sheets'}
-                </button>
-              ) : (
-                <div className="flex items-center justify-between w-full gap-1.5">
-                  <button
-                    type="button"
-                    onClick={handleSyncToSheets}
-                    disabled={isSyncingGSheet || !pref.useGoogleSheets}
-                    className="flex-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
-                  >
-                    <UploadCloud className="w-3 h-3" />
-                    {isSyncingGSheet ? 'Syncing...' : 'Sync'}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handlePullFromSheets}
-                    disabled={isPullingGSheet || !pref.useGoogleSheets}
-                    className="flex-1 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 text-[11px] font-semibold transition flex items-center justify-center gap-1 cursor-pointer"
-                  >
-                    <DownloadCloud className="w-3 h-3" />
-                    {isPullingGSheet ? 'Pulling...' : 'Restore'}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleConnectGoogleSheets}
-                    disabled={isConnectingGSheet}
-                    className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-                    title="Reconnect Google account"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isConnectingGSheet ? 'animate-spin' : ''}`} />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowRemoveConfirm(true)}
-                    className="p-1 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition"
-                    title="Remove / Disconnect Google Sheet"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              )}
-            </div>
           </div>
         </div>
 
         {/* Modal Footer */}
-        <div className="p-3 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+        <div className="p-3 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
+          <button
+            type="button"
+            onClick={handleCopyScript}
+            className="text-[11px] font-semibold text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 flex items-center gap-1 cursor-pointer"
+          >
+            <Code className="w-3.5 h-3.5" />
+            {hasCopiedScript ? 'Script Copied!' : 'Copy Apps Script'}
+          </button>
+
           <button
             type="button"
             onClick={onClose}
@@ -454,3 +700,4 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({
     </div>
   );
 };
+
