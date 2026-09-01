@@ -49,6 +49,7 @@ import { TransactionsView } from './components/TransactionsView';
 import { CalendarView } from './components/CalendarView';
 import { CategoriesView } from './components/CategoriesView';
 import { RulesView } from './components/RulesView';
+import { SettingsView } from './components/SettingsView';
 import { DatabaseModal } from './components/DatabaseModal';
 import { ManageDashboardModal } from './components/ManageDashboardModal';
 import { AuthView } from './components/AuthView';
@@ -1557,10 +1558,11 @@ export default function App() {
               {activeTab === 'groups' && 'Splitwise'}
               {activeTab === 'friends' && 'Friends'}
               {activeTab === 'reports' && 'Financial Analytics'}
+              {activeTab === 'settings' && 'Settings'}
             </h1>
           </div>
 
-          {/* Right: Privacy Toggle, Quick Action & User Profile Dropdown */}
+          {/* Right: Privacy Toggle, Quick Action & User Profile Button */}
           <div className="flex items-center space-x-2.5">
             {/* Eye Icon Privacy Toggle Button (Icon only, expands on hover) */}
             <button
@@ -1616,195 +1618,62 @@ export default function App() {
               }}
             />
 
-            {/* Profile Dropdown Container */}
-            <div className="relative" ref={profileDropdownRef}>
-              <button
-                onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-                id="top-profile-menu-button"
-                title={
-                  isAutoSyncingSheets
-                    ? "Google Sheets: Auto-syncing pending changes..."
-                    : gsheetSyncState === 'synced'
-                    ? "Google Sheets: All data is synced"
-                    : gsheetSyncState === 'pending'
-                    ? "Google Sheets: New changes auto-syncing..."
-                    : (user.name || "User Profile")
-                }
-                className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-slate-100 border border-slate-200/80 bg-white shadow-xs transition group cursor-pointer"
-                aria-expanded={isProfileMenuOpen}
-                aria-haspopup="true"
-              >
-                <div className="relative flex items-center justify-center flex-shrink-0">
-                  {user.avatarUrl ? (
-                    <img
-                      src={user.avatarUrl}
-                      alt={user.name}
-                      className={`w-7 h-7 rounded-full object-cover flex-shrink-0 transition-all duration-200 ${
-                        isAutoSyncingSheets
-                          ? 'ring-[2px] ring-blue-500 ring-offset-1 ring-offset-white animate-pulse'
-                          : gsheetSyncState === 'synced' 
-                          ? 'ring-[1.5px] ring-emerald-500 ring-offset-1 ring-offset-white' 
-                          : gsheetSyncState === 'pending'
-                          ? 'ring-[1.5px] ring-amber-400 ring-offset-1 ring-offset-white'
-                          : ''
-                      }`}
-                      referrerPolicy="no-referrer"
-                    />
-                  ) : (
-                    <div
-                      className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-xs flex-shrink-0 transition-all duration-200 ${
-                        isAutoSyncingSheets
-                          ? 'ring-[2px] ring-blue-500 ring-offset-1 ring-offset-white animate-pulse'
-                          : gsheetSyncState === 'synced' 
-                          ? 'ring-[1.5px] ring-emerald-500 ring-offset-1 ring-offset-white' 
-                          : gsheetSyncState === 'pending'
-                          ? 'ring-[1.5px] ring-amber-400 ring-offset-1 ring-offset-white'
-                          : ''
-                      }`}
-                      style={{ backgroundColor: user.avatarColor || '#3B82F6' }}
-                    >
-                      {(user.name || user.email || 'U').split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U'}
-                    </div>
-                  )}
-                </div>
-                <span className="text-xs font-bold text-slate-800 hidden sm:inline-block max-w-[130px] truncate">
-                  {user.name || 'User'}
-                </span>
-                <ChevronDown className={`w-3.5 h-3.5 text-slate-500 group-hover:text-slate-700 transition-transform duration-200 ${isProfileMenuOpen ? 'rotate-180' : ''}`} />
-              </button>
-
-              {/* Profile Dropdown Menu */}
-              {isProfileMenuOpen && (
-                <div className="absolute right-0 mt-2 w-64 rounded-2xl bg-white border border-slate-200 shadow-xl py-1.5 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
-                  {/* User Info Header */}
-                  <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">
-                    <div className="flex items-center gap-3">
-                      <div className="relative flex items-center justify-center flex-shrink-0">
-                        {user.avatarUrl ? (
-                          <img
-                            src={user.avatarUrl}
-                            alt={user.name}
-                            className={`w-10 h-10 rounded-full object-cover flex-shrink-0 transition-all duration-200 ${
-                              isAutoSyncingSheets
-                                ? 'ring-2 ring-blue-500 ring-offset-1 ring-offset-white animate-pulse'
-                                : gsheetSyncState === 'synced' 
-                                ? 'ring-[1.5px] ring-emerald-500 ring-offset-1 ring-offset-white' 
-                                : gsheetSyncState === 'pending'
-                                ? 'ring-[1.5px] ring-amber-400 ring-offset-1 ring-offset-white'
-                                : ''
-                            }`}
-                            referrerPolicy="no-referrer"
-                          />
-                        ) : (
-                          <div
-                            className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shadow flex-shrink-0 transition-all duration-200 ${
-                              isAutoSyncingSheets
-                                ? 'ring-2 ring-blue-500 ring-offset-1 ring-offset-white animate-pulse'
-                                : gsheetSyncState === 'synced' 
-                                ? 'ring-[1.5px] ring-emerald-500 ring-offset-1 ring-offset-white' 
-                                : gsheetSyncState === 'pending'
-                                ? 'ring-[1.5px] ring-amber-400 ring-offset-1 ring-offset-white'
-                                : ''
-                            }`}
-                            style={{ backgroundColor: user.avatarColor || '#3B82F6' }}
-                          >
-                            {(user.name || user.email || 'U').split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U'}
-                          </div>
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-bold text-slate-900 truncate">{user.name}</p>
-                        <p className="text-xs text-slate-500 truncate">{user.email}</p>
-                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                          <span className="inline-block text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200/60">
-                            {user.currency}
-                          </span>
-                          {gsheetSyncState !== 'disconnected' && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setIsProfileMenuOpen(false);
-                                setIsDatabaseModalOpen(true);
-                              }}
-                              className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded border transition cursor-pointer ${
-                                isAutoSyncingSheets
-                                  ? 'bg-blue-50 text-blue-700 border-blue-200 animate-pulse'
-                                  : gsheetSyncState === 'synced'
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                                  : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
-                              }`}
-                              title="Click to manage Database & Google Sheets sync settings"
-                            >
-                              {isAutoSyncingSheets ? (
-                                <>
-                                  <RefreshCw className="w-2.5 h-2.5 animate-spin" />
-                                  <span>Auto-Syncing...</span>
-                                </>
-                              ) : (
-                                <>
-                                  <span className={`w-1.5 h-1.5 rounded-full ${gsheetSyncState === 'synced' ? 'bg-emerald-500' : 'bg-amber-400'}`} />
-                                  <span>{gsheetSyncState === 'synced' ? 'Auto-Sync Active (Synced)' : 'Sync Pending'}</span>
-                                </>
-                              )}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
+            {/* Profile Button -> Opens Settings View */}
+            <button
+              onClick={() => setActiveTab('settings')}
+              id="top-profile-menu-button"
+              title={
+                isAutoSyncingSheets
+                  ? "Google Sheets: Auto-syncing pending changes..."
+                  : gsheetSyncState === 'synced'
+                  ? "Google Sheets: All data is synced"
+                  : gsheetSyncState === 'pending'
+                  ? "Google Sheets: New changes auto-syncing..."
+                  : (user.name || "Settings")
+              }
+              className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl border transition group cursor-pointer ${
+                activeTab === 'settings'
+                  ? 'bg-blue-50 border-blue-300 text-blue-700 shadow-xs'
+                  : 'hover:bg-slate-100 border-slate-200/80 bg-white shadow-xs'
+              }`}
+            >
+              <div className="relative flex items-center justify-center flex-shrink-0">
+                {user.avatarUrl ? (
+                  <img
+                    src={user.avatarUrl}
+                    alt={user.name}
+                    className={`w-7 h-7 rounded-full object-cover flex-shrink-0 transition-all duration-200 ${
+                      isAutoSyncingSheets
+                        ? 'ring-[2px] ring-blue-500 ring-offset-1 ring-offset-white animate-pulse'
+                        : gsheetSyncState === 'synced' 
+                        ? 'ring-[1.5px] ring-emerald-500 ring-offset-1 ring-offset-white' 
+                        : gsheetSyncState === 'pending'
+                        ? 'ring-[1.5px] ring-amber-400 ring-offset-1 ring-offset-white'
+                        : ''
+                    }`}
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div
+                    className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-xs flex-shrink-0 transition-all duration-200 ${
+                      isAutoSyncingSheets
+                        ? 'ring-[2px] ring-blue-500 ring-offset-1 ring-offset-white animate-pulse'
+                        : gsheetSyncState === 'synced' 
+                        ? 'ring-[1.5px] ring-emerald-500 ring-offset-1 ring-offset-white' 
+                        : gsheetSyncState === 'pending'
+                        ? 'ring-[1.5px] ring-amber-400 ring-offset-1 ring-offset-white'
+                        : ''
+                    }`}
+                    style={{ backgroundColor: user.avatarColor || '#3B82F6' }}
+                  >
+                    {(user.name || user.email || 'U').split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U'}
                   </div>
-
-                  {/* Menu Items */}
-                  <div className="p-1 space-y-0.5">
-                    <button
-                      onClick={() => {
-                        setIsProfileMenuOpen(false);
-                        setIsManageDashboardOpen(true);
-                      }}
-                      id="menu-manage-dashboard"
-                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition text-left cursor-pointer"
-                    >
-                      <SlidersHorizontal className="w-4 h-4 text-blue-600" />
-                      <span>Manage Dashboard</span>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setIsProfileMenuOpen(false);
-                        setIsDatabaseModalOpen(true);
-                      }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition text-left cursor-pointer"
-                    >
-                      <Database className="w-4 h-4 text-indigo-500" />
-                      <span>Database & Storage</span>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setIsProfileMenuOpen(false);
-                        setIsProfileModalOpen(true);
-                      }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition text-left cursor-pointer"
-                    >
-                      <User className="w-4 h-4 text-slate-500" />
-                      <span>Edit Profile & Currency</span>
-                    </button>
-                  </div>
-
-                  <div className="border-t border-slate-100 my-1"></div>
-
-                  {/* Logout Button */}
-                  <div className="p-1">
-                    <button
-                      onClick={handleLogout}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition text-left cursor-pointer"
-                    >
-                      <LogOut className="w-4 h-4 text-rose-500" />
-                      <span>Log out</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+              <span className="text-xs font-bold text-slate-800 hidden sm:inline-block max-w-[130px] truncate">
+                {user.name || 'User'}
+              </span>
+            </button>
           </div>
         </header>
 
@@ -1995,6 +1864,30 @@ export default function App() {
               groups={groups}
               friends={friends}
               categories={categories}
+            />
+          )}
+
+          {activeTab === 'settings' && (
+            <SettingsView
+              user={user}
+              onSaveProfile={handleSaveProfile}
+              dashboardCards={dashboardCards}
+              onUpdateDashboardCards={handleSaveDashboardCards}
+              onResetDashboardCards={handleResetDashboardCards}
+              accounts={accounts}
+              transactions={transactions}
+              categories={categories}
+              loans={loans}
+              rules={rules}
+              onAddTransaction={handleSaveExpense}
+              onRestoreFromSheets={(restored) => {
+                if (restored.accounts && restored.accounts.length > 0) setAccounts(restored.accounts);
+                if (restored.transactions && restored.transactions.length > 0) setTransactions(restored.transactions);
+                if (restored.categories && restored.categories.length > 0) setCategories(restored.categories);
+                if (restored.loans && restored.loans.length > 0) setLoans(restored.loans);
+                if (restored.rules && restored.rules.length > 0) setRules(restored.rules);
+              }}
+              onLogout={handleLogout}
             />
           )}
         </main>

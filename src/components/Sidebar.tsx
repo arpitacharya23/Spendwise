@@ -17,6 +17,7 @@ import {
   Palette, 
   Target,
   Sparkles,
+  Settings,
   LogOut
 } from 'lucide-react';
 import { UserProfile } from '../types';
@@ -57,6 +58,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'groups', label: 'Splitwise', icon: Users2 },
     { id: 'friends', label: 'Friends', icon: UserCheck },
     { id: 'reports', label: 'Analytics', icon: BarChart3 },
+    { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
   const handleNavClick = (tabId: string) => {
