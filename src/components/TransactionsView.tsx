@@ -1528,8 +1528,8 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                               )}
                             </div>
 
-                            {/* Subtitle Info (Time + Account + Notes) */}
-                            <div className="text-xs text-slate-500 mt-1 flex items-center gap-1.5 flex-wrap">
+                            {/* Subtitle Info (Time + Account + Notes) - hidden by default, visible on row hover */}
+                            <div className="text-xs text-slate-500 max-h-0 opacity-0 overflow-hidden mt-0 group-hover:max-h-24 group-hover:opacity-100 group-hover:mt-1.5 group-focus-within:max-h-24 group-focus-within:opacity-100 group-focus-within:mt-1.5 transition-all duration-200 ease-out flex items-center gap-1.5 flex-wrap">
                               {/* Transaction Time Badge on Row */}
                               <span className="inline-flex items-center gap-1 font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md text-[11px] border border-slate-200/70 shadow-2xs">
                                 <Clock className="w-3 h-3 text-slate-500" />
