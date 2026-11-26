@@ -90,42 +90,28 @@ export function isPhoneExactMatch(p1?: string | null, p2?: string | null): boole
   return false;
 }
 
+// Row Level Security hides other people's profiles from direct queries, so people are
+// looked up through the lookup_profile() RPC, which returns one exact email/phone match.
+async function lookupProfileRpc(query: string): Promise<any | null> {
+  const { data, error } = await supabase.rpc('lookup_profile', { p_query: query });
+  if (error) return null;
+  const row = Array.isArray(data) ? data[0] : data;
+  return row && row.name ? row : null;
+}
+
 export async function findUserByEmail(email: string): Promise<FoundUserResult | null> {
   const normalized = email.trim().toLowerCase();
   if (!normalized || !normalized.includes('@')) return null;
 
   try {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('name, email, avatar_color, phone, country_code')
-      .ilike('email', normalized)
-      .maybeSingle();
-
-    if (!error && data && data.name && (data.email || '').toLowerCase() === normalized) {
+    const row = await lookupProfileRpc(normalized);
+    if (row && (row.email || '').toLowerCase() === normalized) {
       return {
-        name: data.name,
-        email: data.email || normalized,
-        avatarColor: data.avatar_color || '#3B82F6',
-        phone: data.phone || undefined,
-        countryCode: data.country_code || undefined,
-        isRegistered: true,
-      };
-    }
-
-    // Secondary fallback: check if id is stored as email
-    const { data: dataById, error: errById } = await supabase
-      .from('profiles')
-      .select('name, email, avatar_color, phone, country_code')
-      .ilike('id', normalized)
-      .maybeSingle();
-
-    if (!errById && dataById && dataById.name && ((dataById.email || '').toLowerCase() === normalized || (dataById as any).id?.toLowerCase() === normalized)) {
-      return {
-        name: dataById.name,
-        email: dataById.email || normalized,
-        avatarColor: dataById.avatar_color || '#3B82F6',
-        phone: dataById.phone || undefined,
-        countryCode: dataById.country_code || undefined,
+        name: row.name,
+        email: row.email || normalized,
+        avatarColor: row.avatar_color || '#3B82F6',
+        phone: row.phone || undefined,
+        countryCode: row.country_code || undefined,
         isRegistered: true,
       };
     }
@@ -142,48 +128,17 @@ export async function findUserByPhone(phoneQuery: string): Promise<FoundUserResu
   // Exact phone match requires a complete 10-digit number
   if (!digitsOnly || digitsOnly.length < 10) return null;
 
-  const last10 = digitsOnly.slice(-10);
-
   try {
-    // 1. Try exact match on raw phone string
-    const { data: exactMatch, error: exactErr } = await supabase
-      .from('profiles')
-      .select('name, email, avatar_color, phone, country_code')
-      .eq('phone', rawClean)
-      .maybeSingle();
-
-    if (!exactErr && exactMatch && exactMatch.name && isPhoneExactMatch(exactMatch.phone, rawClean)) {
+    const row = await lookupProfileRpc(rawClean);
+    if (row && isPhoneExactMatch(row.phone, rawClean)) {
       return {
-        name: exactMatch.name,
-        email: exactMatch.email,
-        avatarColor: exactMatch.avatar_color || '#3B82F6',
-        phone: exactMatch.phone || undefined,
-        countryCode: exactMatch.country_code || undefined,
+        name: row.name,
+        email: row.email,
+        avatarColor: row.avatar_color || '#3B82F6',
+        phone: row.phone || undefined,
+        countryCode: row.country_code || undefined,
         isRegistered: true,
       };
-    }
-
-    // 2. Fetch candidates matching the exact 10-digit suffix and verify exact match
-    const { data: list, error: listErr } = await supabase
-      .from('profiles')
-      .select('name, email, avatar_color, phone, country_code')
-      .ilike('phone', `%${last10}%`)
-      .limit(10);
-
-    if (!listErr && list && list.length > 0) {
-      // Strictly find the exact match (no partial/substring matches)
-      const matched = list.find(item => isPhoneExactMatch(item.phone, rawClean));
-
-      if (matched && matched.name) {
-        return {
-          name: matched.name,
-          email: matched.email,
-          avatarColor: matched.avatar_color || '#3B82F6',
-          phone: matched.phone || undefined,
-          countryCode: matched.country_code || undefined,
-          isRegistered: true,
-        };
-      }
     }
   } catch (err) {
     console.warn('findUserByPhone lookup note:', err);
@@ -1154,6 +1109,17 @@ export async function saveSupabaseGroup(group: Group): Promise<boolean> {
   }
 }
 
+// Leaving a group removes your own access to it, which a plain UPDATE cannot do under
+// Row Level Security (the result would be a row you can no longer see), so use the RPC.
+export async function leaveSupabaseGroup(groupId: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc('leave_group', { p_group_id: groupId });
+    return !error && data === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function deleteSupabaseGroup(groupId: string): Promise<boolean> {
   try {
     const { error } = await supabase
@@ -1281,9 +1247,9 @@ export async function getSupabaseFriends(userEmail?: string): Promise<Friend[] |
       let profileMap = new Map<string, { name: string; avatarColor: string; phone?: string }>();
       
       try {
+        // Only fetch profiles of people we are actually linked to (RLS blocks the rest).
         const { data: profiles } = await supabase
-          .from('profiles')
-          .select('email, name, avatar_color, phone');
+          .rpc('get_friend_profiles', { p_emails: creatorEmails });
         if (profiles) {
           for (const p of profiles) {
             if (p.email) {

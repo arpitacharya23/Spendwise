@@ -90,6 +90,7 @@ import {
   deleteSupabaseLoan,
   getSupabaseGroups, 
   saveSupabaseGroup,
+  leaveSupabaseGroup,
   getSupabaseActivityLogs, 
   saveSupabaseActivityLog,
   getSupabaseFriends, 
@@ -1160,7 +1161,15 @@ export default function App() {
     setGroups(groups.map(g => {
       if (g.id === groupId) {
         const updated = { ...g, members: g.members.filter(m => m.id !== memberId) };
-        saveSupabaseGroup(updated);
+        const removed = g.members.find(m => m.id === memberId);
+        const removedSelf = !!removed && (removed.email || '').trim().toLowerCase() === (user.email || '').trim().toLowerCase();
+        const isCreator = (g.createdBy || '').trim().toLowerCase() === (user.email || '').trim().toLowerCase();
+        if (removedSelf && !isCreator) {
+          // A non-creator removing themselves loses access to the row, so RLS needs the RPC.
+          leaveSupabaseGroup(groupId);
+        } else {
+          saveSupabaseGroup(updated);
+        }
         return updated;
       }
       return g;

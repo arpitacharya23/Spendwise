@@ -445,7 +445,7 @@ BEGIN
         'net_savings_month', (v_total_income_month - v_total_expenses_month)
     );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql;
 
 -- 5.3 Helper Function: Match Transaction Title with Automation Rules
 CREATE OR REPLACE FUNCTION public.match_transaction_rule(p_title text)
@@ -490,58 +490,415 @@ ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.rules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.budgets ENABLE ROW LEVEL SECURITY;
 
+-- Per-user policies. Everything below is idempotent: it drops any previous policies on
+-- these tables (including the old "Allow all access" ones) and recreates them.
+-- Anonymous (not signed-in) requests get no rows at all.
+-- ------------------------------------------------------------------------------
+-- 6.0 HELPER FUNCTIONS (SECURITY INVOKER: they always run with the caller's rights)
+-- ------------------------------------------------------------------------------
+-- The signed-in user's verified email, taken from the Supabase Auth JWT.
+-- Returns '' when there is no signed-in user (anon key only), which matches nothing.
+CREATE OR REPLACE FUNCTION public.current_email()
+RETURNS text
+LANGUAGE sql STABLE
+AS $$
+    SELECT lower(btrim(coalesce(auth.jwt() ->> 'email', '')))
+$$;
+
+-- True when a JSONB array of objects contains an entry whose p_key equals p_email
+-- (case-insensitive) and, optionally, whose "role" is one of p_roles.
+CREATE OR REPLACE FUNCTION public.jsonb_has_email(
+    p_arr jsonb,
+    p_email text,
+    p_key text DEFAULT 'email',
+    p_roles text[] DEFAULT NULL
+)
+RETURNS boolean
+LANGUAGE sql IMMUTABLE
+AS $$
+    SELECT coalesce(p_email, '') <> '' AND
+        CASE WHEN jsonb_typeof(p_arr) = 'array' THEN
+            EXISTS (
+                SELECT 1 FROM jsonb_array_elements(p_arr) e
+                WHERE jsonb_typeof(e) = 'object'
+                  AND lower(btrim(coalesce(e ->> p_key, ''))) = p_email
+                  AND (p_roles IS NULL OR (e ->> 'role') = ANY (p_roles))
+            )
+        ELSE false END
+$$;
+
+-- Owner, or shared with role edit/admin: may create/edit/delete transactions on the account.
+CREATE OR REPLACE FUNCTION public.can_transact_account(p_account_id text)
+RETURNS boolean
+LANGUAGE sql STABLE
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.accounts a
+        WHERE a.id = p_account_id
+          AND (
+              lower(btrim(a.owner_email)) = public.current_email()
+              OR public.jsonb_has_email(a.shared_with, public.current_email(), 'email', ARRAY['edit', 'admin'])
+          )
+    )
+$$;
+
+
+-- The next three are used by the INSERT policies. The app saves with upsert
+-- (INSERT ... ON CONFLICT DO UPDATE) and Postgres checks the INSERT policy on the
+-- proposed row even when it turns into an UPDATE. So an editor/member saving a record
+-- someone else created must be allowed when that record already exists and is theirs to edit.
+CREATE OR REPLACE FUNCTION public.group_visible(p_id text)
+RETURNS boolean LANGUAGE sql STABLE
+AS $$ SELECT EXISTS (SELECT 1 FROM public.groups g WHERE g.id = p_id) $$;
+
+CREATE OR REPLACE FUNCTION public.account_editable(p_id text)
+RETURNS boolean LANGUAGE sql STABLE
+AS $$ SELECT public.can_transact_account(p_id) $$;
+
+CREATE OR REPLACE FUNCTION public.transaction_editable(p_id text)
+RETURNS boolean LANGUAGE sql STABLE
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.transactions t
+        WHERE t.id = p_id
+          AND (lower(btrim(t.created_by)) = public.current_email()
+               OR (t.account_id IS NOT NULL AND public.can_transact_account(t.account_id)))
+    )
+$$;
+
+-- ------------------------------------------------------------------------------
+-- 6.1 REMOVE EVERY EXISTING POLICY ON THE APP TABLES
+-- (permissive policies are OR-ed together, so one leftover "allow all" would
+--  silently cancel every rule below)
+-- ------------------------------------------------------------------------------
 DO $$
+DECLARE r record;
 BEGIN
-    -- Profiles
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'profiles' AND policyname = 'Allow all access to profiles') THEN
-        CREATE POLICY "Allow all access to profiles" ON public.profiles FOR ALL USING (true) WITH CHECK (true);
-    END IF;
-
-    -- Categories
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'categories' AND policyname = 'Allow all access to categories') THEN
-        CREATE POLICY "Allow all access to categories" ON public.categories FOR ALL USING (true) WITH CHECK (true);
-    END IF;
-
-    -- Accounts
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'accounts' AND policyname = 'Allow all access to accounts') THEN
-        CREATE POLICY "Allow all access to accounts" ON public.accounts FOR ALL USING (true) WITH CHECK (true);
-    END IF;
-
-    -- Loans
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'loans' AND policyname = 'Allow all access to loans') THEN
-        CREATE POLICY "Allow all access to loans" ON public.loans FOR ALL USING (true) WITH CHECK (true);
-    END IF;
-
-    -- Groups
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'groups' AND policyname = 'Allow all access to groups') THEN
-        CREATE POLICY "Allow all access to groups" ON public.groups FOR ALL USING (true) WITH CHECK (true);
-    END IF;
-
-    -- Group Activity Logs
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'group_activity_logs' AND policyname = 'Allow all access to group_activity_logs') THEN
-        CREATE POLICY "Allow all access to group_activity_logs" ON public.group_activity_logs FOR ALL USING (true) WITH CHECK (true);
-    END IF;
-
-    -- Friends
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'friends' AND policyname = 'Allow all access to friends') THEN
-        CREATE POLICY "Allow all access to friends" ON public.friends FOR ALL USING (true) WITH CHECK (true);
-    END IF;
-
-    -- Transactions
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'transactions' AND policyname = 'Allow all access to transactions') THEN
-        CREATE POLICY "Allow all access to transactions" ON public.transactions FOR ALL USING (true) WITH CHECK (true);
-    END IF;
-
-    -- Rules
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'rules' AND policyname = 'Allow all access to rules') THEN
-        CREATE POLICY "Allow all access to rules" ON public.rules FOR ALL USING (true) WITH CHECK (true);
-    END IF;
-
-    -- Budgets
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'budgets' AND policyname = 'Allow all access to budgets') THEN
-        CREATE POLICY "Allow all access to budgets" ON public.budgets FOR ALL USING (true) WITH CHECK (true);
-    END IF;
+    FOR r IN
+        SELECT policyname, tablename FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename IN ('profiles', 'categories', 'accounts', 'loans', 'groups',
+                            'group_activity_logs', 'friends', 'transactions', 'rules', 'budgets')
+    LOOP
+        EXECUTE format('DROP POLICY %I ON public.%I', r.policyname, r.tablename);
+    END LOOP;
 END $$;
+
+-- ------------------------------------------------------------------------------
+-- 6.2 POLICIES (authenticated users only; the anon role gets no rows at all)
+-- ------------------------------------------------------------------------------
+
+-- PROFILES: you can only see and change your own profile.
+-- (Looking up other people goes through the lookup RPCs in 6.5.)
+CREATE POLICY profiles_select ON public.profiles FOR SELECT TO authenticated
+    USING (id = (SELECT auth.uid())::text OR lower(btrim(email)) = (SELECT public.current_email()));
+CREATE POLICY profiles_insert ON public.profiles FOR INSERT TO authenticated
+    WITH CHECK (lower(btrim(email)) = (SELECT public.current_email()));
+CREATE POLICY profiles_update ON public.profiles FOR UPDATE TO authenticated
+    USING (id = (SELECT auth.uid())::text OR lower(btrim(email)) = (SELECT public.current_email()))
+    WITH CHECK (lower(btrim(email)) = (SELECT public.current_email()));
+CREATE POLICY profiles_delete ON public.profiles FOR DELETE TO authenticated
+    USING (id = (SELECT auth.uid())::text OR lower(btrim(email)) = (SELECT public.current_email()));
+
+-- CATEGORIES: everyone can read global templates and legacy unscoped rows,
+-- but you can only write your own.
+CREATE POLICY categories_select ON public.categories FOR SELECT TO authenticated
+    USING (is_global = true OR user_email IS NULL OR lower(btrim(user_email)) = (SELECT public.current_email()));
+CREATE POLICY categories_insert ON public.categories FOR INSERT TO authenticated
+    WITH CHECK (lower(btrim(user_email)) = (SELECT public.current_email()));
+CREATE POLICY categories_update ON public.categories FOR UPDATE TO authenticated
+    USING (lower(btrim(user_email)) = (SELECT public.current_email()))
+    WITH CHECK (lower(btrim(user_email)) = (SELECT public.current_email()));
+CREATE POLICY categories_delete ON public.categories FOR DELETE TO authenticated
+    USING (lower(btrim(user_email)) = (SELECT public.current_email()));
+
+-- RULES: same model as categories.
+CREATE POLICY rules_select ON public.rules FOR SELECT TO authenticated
+    USING (is_global = true OR user_email IS NULL OR lower(btrim(user_email)) = (SELECT public.current_email()));
+CREATE POLICY rules_insert ON public.rules FOR INSERT TO authenticated
+    WITH CHECK (lower(btrim(user_email)) = (SELECT public.current_email()));
+CREATE POLICY rules_update ON public.rules FOR UPDATE TO authenticated
+    USING (lower(btrim(user_email)) = (SELECT public.current_email()))
+    WITH CHECK (lower(btrim(user_email)) = (SELECT public.current_email()));
+CREATE POLICY rules_delete ON public.rules FOR DELETE TO authenticated
+    USING (lower(btrim(user_email)) = (SELECT public.current_email()));
+
+-- BUDGETS: private to the owner.
+CREATE POLICY budgets_all ON public.budgets FOR ALL TO authenticated
+    USING (lower(btrim(user_email)) = (SELECT public.current_email()))
+    WITH CHECK (lower(btrim(user_email)) = (SELECT public.current_email()));
+
+-- LOANS: private to the owner.
+CREATE POLICY loans_all ON public.loans FOR ALL TO authenticated
+    USING (lower(btrim(user_email)) = (SELECT public.current_email())
+        OR lower(btrim(owner_email)) = (SELECT public.current_email()))
+    WITH CHECK (lower(btrim(user_email)) = (SELECT public.current_email())
+        OR lower(btrim(owner_email)) = (SELECT public.current_email()));
+
+-- ACCOUNTS: owner, plus anyone listed in shared_with.
+-- view = read only, edit/admin = may update, only the owner may delete.
+CREATE POLICY accounts_select ON public.accounts FOR SELECT TO authenticated
+    USING (lower(btrim(owner_email)) = (SELECT public.current_email())
+        OR public.jsonb_has_email(shared_with, (SELECT public.current_email())));
+CREATE POLICY accounts_insert ON public.accounts FOR INSERT TO authenticated
+    WITH CHECK (lower(btrim(owner_email)) = (SELECT public.current_email())
+        OR public.account_editable(id));
+CREATE POLICY accounts_update ON public.accounts FOR UPDATE TO authenticated
+    USING (lower(btrim(owner_email)) = (SELECT public.current_email())
+        OR public.jsonb_has_email(shared_with, (SELECT public.current_email()), 'email', ARRAY['edit', 'admin']))
+    WITH CHECK (lower(btrim(owner_email)) = (SELECT public.current_email())
+        OR public.jsonb_has_email(shared_with, (SELECT public.current_email()), 'email', ARRAY['edit', 'admin']));
+CREATE POLICY accounts_delete ON public.accounts FOR DELETE TO authenticated
+    USING (lower(btrim(owner_email)) = (SELECT public.current_email()));
+
+-- GROUPS: creator and listed members. Any member may update (add expenses, add or
+-- leave members). Only the creator or a group admin may delete.
+CREATE POLICY groups_select ON public.groups FOR SELECT TO authenticated
+    USING (lower(btrim(created_by)) = (SELECT public.current_email())
+        OR public.jsonb_has_email(members, (SELECT public.current_email())));
+CREATE POLICY groups_insert ON public.groups FOR INSERT TO authenticated
+    WITH CHECK (lower(btrim(created_by)) = (SELECT public.current_email())
+        OR public.group_visible(id));
+CREATE POLICY groups_update ON public.groups FOR UPDATE TO authenticated
+    USING (lower(btrim(created_by)) = (SELECT public.current_email())
+        OR public.jsonb_has_email(members, (SELECT public.current_email())))
+    WITH CHECK (true);  -- created_by is protected by a trigger below; leaving uses leave_group()
+CREATE POLICY groups_delete ON public.groups FOR DELETE TO authenticated
+    USING (lower(btrim(created_by)) = (SELECT public.current_email())
+        OR public.jsonb_has_email(members, (SELECT public.current_email()), 'email', ARRAY['admin']));
+
+-- GROUP ACTIVITY LOGS: visible to / writable by anyone who can see the group.
+CREATE POLICY group_logs_select ON public.group_activity_logs FOR SELECT TO authenticated
+    USING (EXISTS (SELECT 1 FROM public.groups g WHERE g.id = group_activity_logs.group_id));
+CREATE POLICY group_logs_insert ON public.group_activity_logs FOR INSERT TO authenticated
+    WITH CHECK (EXISTS (SELECT 1 FROM public.groups g WHERE g.id = group_activity_logs.group_id));
+
+-- FRIENDS: your own rows, plus the mirror rows other people keep about you
+-- (email = you), which the app uses to keep both sides of a debt in sync.
+CREATE POLICY friends_select ON public.friends FOR SELECT TO authenticated
+    USING (lower(btrim(user_email)) = (SELECT public.current_email())
+        OR lower(btrim(owner_email)) = (SELECT public.current_email())
+        OR lower(btrim(email)) = (SELECT public.current_email()));
+CREATE POLICY friends_insert ON public.friends FOR INSERT TO authenticated
+    WITH CHECK (lower(btrim(user_email)) = (SELECT public.current_email())
+        OR lower(btrim(owner_email)) = (SELECT public.current_email())
+        OR lower(btrim(email)) = (SELECT public.current_email()));
+CREATE POLICY friends_update ON public.friends FOR UPDATE TO authenticated
+    USING (lower(btrim(user_email)) = (SELECT public.current_email())
+        OR lower(btrim(owner_email)) = (SELECT public.current_email())
+        OR lower(btrim(email)) = (SELECT public.current_email()))
+    WITH CHECK (lower(btrim(user_email)) = (SELECT public.current_email())
+        OR lower(btrim(owner_email)) = (SELECT public.current_email())
+        OR lower(btrim(email)) = (SELECT public.current_email()));
+CREATE POLICY friends_delete ON public.friends FOR DELETE TO authenticated
+    USING (lower(btrim(user_email)) = (SELECT public.current_email())
+        OR lower(btrim(owner_email)) = (SELECT public.current_email())
+        OR lower(btrim(email)) = (SELECT public.current_email()));
+
+-- TRANSACTIONS: same visibility the app already applies in the browser:
+-- you created it, you can access its account, or you are named in its split.
+CREATE POLICY transactions_select ON public.transactions FOR SELECT TO authenticated
+    USING (
+        lower(btrim(created_by)) = (SELECT public.current_email())
+        OR public.jsonb_has_email(split_details, (SELECT public.current_email()), 'memberEmail')
+        OR EXISTS (SELECT 1 FROM public.accounts a
+                   WHERE a.id = transactions.account_id OR a.id = transactions.to_account_id)
+    );
+CREATE POLICY transactions_insert ON public.transactions FOR INSERT TO authenticated
+    WITH CHECK (
+        (lower(btrim(created_by)) = (SELECT public.current_email())
+         AND (account_id IS NULL OR public.can_transact_account(account_id)))
+        OR public.transaction_editable(id)
+    );
+CREATE POLICY transactions_update ON public.transactions FOR UPDATE TO authenticated
+    USING (
+        lower(btrim(created_by)) = (SELECT public.current_email())
+        OR (account_id IS NOT NULL AND public.can_transact_account(account_id))
+    )
+    WITH CHECK (
+        lower(btrim(created_by)) = (SELECT public.current_email())
+        OR (account_id IS NOT NULL AND public.can_transact_account(account_id))
+    );
+CREATE POLICY transactions_delete ON public.transactions FOR DELETE TO authenticated
+    USING (
+        lower(btrim(created_by)) = (SELECT public.current_email())
+        OR (account_id IS NOT NULL AND public.can_transact_account(account_id))
+    );
+
+-- ------------------------------------------------------------------------------
+-- 6.3 GUARD TRIGGERS (RLS cannot restrict individual columns, these do)
+-- Requests without a user email (service role, SQL editor) are not restricted.
+-- ------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.guard_account_update()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE me text := public.current_email();
+BEGIN
+    IF me = '' OR lower(btrim(OLD.owner_email)) = me THEN
+        RETURN NEW;
+    END IF;
+    IF NEW.owner_email IS DISTINCT FROM OLD.owner_email THEN
+        RAISE EXCEPTION 'Only the account owner can change ownership';
+    END IF;
+    IF NEW.shared_with IS DISTINCT FROM OLD.shared_with
+       AND NOT public.jsonb_has_email(OLD.shared_with, me, 'email', ARRAY['admin']) THEN
+        RAISE EXCEPTION 'Only the owner or an admin can change who an account is shared with';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_guard_account_update ON public.accounts;
+CREATE TRIGGER trg_guard_account_update BEFORE UPDATE ON public.accounts
+    FOR EACH ROW EXECUTE FUNCTION public.guard_account_update();
+
+CREATE OR REPLACE FUNCTION public.guard_group_update()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF public.current_email() <> '' THEN
+        NEW.created_by := OLD.created_by;  -- nobody can take over or reassign a group
+    END IF;
+    RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_guard_group_update ON public.groups;
+CREATE TRIGGER trg_guard_group_update BEFORE UPDATE ON public.groups
+    FOR EACH ROW EXECUTE FUNCTION public.guard_group_update();
+
+CREATE OR REPLACE FUNCTION public.guard_transaction_update()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF public.current_email() <> '' THEN
+        NEW.created_by := OLD.created_by;  -- the author of a transaction cannot be rewritten
+    END IF;
+    RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_guard_transaction_update ON public.transactions;
+CREATE TRIGGER trg_guard_transaction_update BEFORE UPDATE ON public.transactions
+    FOR EACH ROW EXECUTE FUNCTION public.guard_transaction_update();
+
+-- ------------------------------------------------------------------------------
+-- 6.4 LOCK DOWN THE SECURITY DEFINER SUMMARY FUNCTION
+-- It used to bypass RLS and trusted a caller-supplied email, so anyone could read
+-- anyone's financial summary. It now runs with the caller's rights (RLS applies)
+-- and is not callable without signing in.
+-- ------------------------------------------------------------------------------
+ALTER FUNCTION public.get_user_financial_summary(text) SECURITY INVOKER;
+REVOKE EXECUTE ON FUNCTION public.get_user_financial_summary(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_user_financial_summary(text) TO authenticated;
+
+-- ------------------------------------------------------------------------------
+-- 6.5 SAFE CROSS-USER LOOKUPS (replace direct reads of other people's profiles)
+-- ------------------------------------------------------------------------------
+-- Find ONE person by exact email or by 10-digit phone number (for "add friend").
+CREATE OR REPLACE FUNCTION public.lookup_profile(p_query text)
+RETURNS TABLE (name text, email text, avatar_color text, phone text, country_code text)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+    SELECT p.name, p.email, p.avatar_color, p.phone, p.country_code
+    FROM public.profiles p
+    WHERE auth.uid() IS NOT NULL
+      AND p_query IS NOT NULL
+      AND (
+          lower(btrim(p.email)) = lower(btrim(p_query))
+          OR (
+              length(regexp_replace(p_query, '[^0-9]', '', 'g')) >= 10
+              AND right(regexp_replace(coalesce(p.phone, ''), '[^0-9]', '', 'g'), 10)
+                  = right(regexp_replace(p_query, '[^0-9]', '', 'g'), 10)
+          )
+      )
+    LIMIT 1
+$$;
+
+-- Display names / avatars for people you already have a friend link with (either direction).
+CREATE OR REPLACE FUNCTION public.get_friend_profiles(p_emails text[])
+RETURNS TABLE (email text, name text, avatar_color text, phone text)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+    SELECT p.email, p.name, p.avatar_color, p.phone
+    FROM public.profiles p
+    WHERE auth.uid() IS NOT NULL
+      AND lower(btrim(p.email)) IN (SELECT lower(btrim(e)) FROM unnest(p_emails) AS e)
+      AND (
+          lower(btrim(p.email)) = public.current_email()
+          OR EXISTS (
+              SELECT 1 FROM public.friends f
+              WHERE (lower(btrim(f.user_email)) = public.current_email() AND lower(btrim(f.email)) = lower(btrim(p.email)))
+                 OR (lower(btrim(f.email)) = public.current_email() AND lower(btrim(f.user_email)) = lower(btrim(p.email)))
+          )
+      )
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.lookup_profile(text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.get_friend_profiles(text[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.lookup_profile(text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_friend_profiles(text[]) TO authenticated;
+
+
+-- A member who removes THEMSELVES can no longer see the group afterwards, and Postgres
+-- rejects an UPDATE whose result the caller could not read. This function does it safely.
+CREATE OR REPLACE FUNCTION public.leave_group(p_group_id text)
+RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE me text := public.current_email();
+BEGIN
+    IF me = '' THEN
+        RETURN false;
+    END IF;
+    UPDATE public.groups g
+    SET members = coalesce(
+        (SELECT jsonb_agg(m) FROM jsonb_array_elements(g.members) m
+         WHERE lower(btrim(coalesce(m ->> 'email', ''))) <> me), '[]'::jsonb)
+    WHERE g.id = p_group_id AND public.jsonb_has_email(g.members, me);
+    RETURN FOUND;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.leave_group(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.leave_group(text) TO authenticated;
+
+-- ------------------------------------------------------------------------------
+-- 6.6 CREATE THE PROFILE ROW AUTOMATICALLY ON SIGN-UP
+-- With email confirmation on, sign-up returns no session, so the browser cannot
+-- insert the profile itself under RLS. The sign-up form already sends name,
+-- currency, avatar_color and monthly_budget as user metadata; this uses them.
+-- ------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.handle_new_auth_user()
+RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE v_budget text := NEW.raw_user_meta_data ->> 'monthly_budget';
+BEGIN
+    IF NEW.email IS NULL OR btrim(NEW.email) = '' THEN
+        RETURN NEW;
+    END IF;
+    INSERT INTO public.profiles (id, name, email, currency, avatar_color, monthly_budget)
+    VALUES (
+        NEW.id::text,
+        left(coalesce(nullif(btrim(NEW.raw_user_meta_data ->> 'name'), ''), split_part(NEW.email, '@', 1), 'User'), 100),
+        lower(btrim(NEW.email)),
+        left(coalesce(nullif(NEW.raw_user_meta_data ->> 'currency', ''), '₹'), 8),
+        left(coalesce(nullif(NEW.raw_user_meta_data ->> 'avatar_color', ''), '#3B82F6'), 16),
+        CASE WHEN v_budget ~ '^[0-9]{1,12}([.][0-9]+)?$' THEN v_budget::numeric ELSE 50000 END
+    )
+    ON CONFLICT DO NOTHING;
+    RETURN NEW;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.handle_new_auth_user() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users
+    FOR EACH ROW EXECUTE FUNCTION public.handle_new_auth_user();
 
 -- ==============================================================================
 -- 7. SEED DEFAULT UNIVERSAL CATEGORIES & RULES (GLOBAL TEMPLATES)

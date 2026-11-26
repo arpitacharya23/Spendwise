@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS public.categories (
     color TEXT NOT NULL DEFAULT '#3B82F6',
     type TEXT NOT NULL DEFAULT 'expense',
     budget_limit NUMERIC DEFAULT NULL,
+    parent_id TEXT REFERENCES public.categories(id) ON DELETE CASCADE,
+    user_email TEXT DEFAULT NULL,
+    is_global BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -161,6 +164,8 @@ CREATE TABLE IF NOT EXISTS public.rules (
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
     match_count INTEGER NOT NULL DEFAULT 0,
+    user_email TEXT DEFAULT NULL,
+    is_global BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -198,6 +203,8 @@ ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS icon TEXT NOT NULL DEFAUL
 ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT '#3B82F6';
 ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'expense';
 ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS budget_limit NUMERIC DEFAULT NULL;
+ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS user_email TEXT DEFAULT NULL;
+ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS is_global BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
@@ -286,6 +293,8 @@ ALTER TABLE public.rules ADD COLUMN IF NOT EXISTS transaction_type TEXT DEFAULT 
 ALTER TABLE public.rules ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE public.rules ADD COLUMN IF NOT EXISTS is_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE public.rules ADD COLUMN IF NOT EXISTS match_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.rules ADD COLUMN IF NOT EXISTS user_email TEXT DEFAULT NULL;
+ALTER TABLE public.rules ADD COLUMN IF NOT EXISTS is_global BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE public.rules ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 ALTER TABLE public.rules ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
@@ -311,14 +320,16 @@ CREATE INDEX IF NOT EXISTS idx_group_logs_group ON public.group_activity_logs (g
 CREATE INDEX IF NOT EXISTS idx_accounts_owner ON public.accounts (owner_email);
 CREATE INDEX IF NOT EXISTS idx_loans_user ON public.loans (user_email);
 CREATE INDEX IF NOT EXISTS idx_friends_user ON public.friends (user_email);
+CREATE INDEX IF NOT EXISTS idx_rules_user ON public.rules (user_email);
 CREATE INDEX IF NOT EXISTS idx_rules_active ON public.rules (is_active);
+CREATE INDEX IF NOT EXISTS idx_categories_user ON public.categories (user_email);
 CREATE INDEX IF NOT EXISTS idx_budgets_user_period ON public.budgets (user_email, year, month);
 
 -- ==============================================================================
 -- 5. POSTGRESQL FUNCTIONS & TRIGGERS
 -- ==============================================================================
 
--- 5.1 Auto-update `updated_at` Timestamp Trigger Function
+-- 5.1 Auto-update updated_at Timestamp Trigger Function
 CREATE OR REPLACE FUNCTION public.handle_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -434,7 +445,7 @@ BEGIN
         'net_savings_month', (v_total_income_month - v_total_expenses_month)
     );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql;
 
 -- 5.3 Helper Function: Match Transaction Title with Automation Rules
 CREATE OR REPLACE FUNCTION public.match_transaction_rule(p_title text)
@@ -479,76 +490,476 @@ ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.rules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.budgets ENABLE ROW LEVEL SECURITY;
 
+-- Per-user policies. Everything below is idempotent: it drops any previous policies on
+-- these tables (including the old "Allow all access" ones) and recreates them.
+-- Anonymous (not signed-in) requests get no rows at all.
+-- ------------------------------------------------------------------------------
+-- 6.0 HELPER FUNCTIONS (SECURITY INVOKER: they always run with the caller's rights)
+-- ------------------------------------------------------------------------------
+-- The signed-in user's verified email, taken from the Supabase Auth JWT.
+-- Returns '' when there is no signed-in user (anon key only), which matches nothing.
+CREATE OR REPLACE FUNCTION public.current_email()
+RETURNS text
+LANGUAGE sql STABLE
+AS $$
+    SELECT lower(btrim(coalesce(auth.jwt() ->> 'email', '')))
+$$;
+
+-- True when a JSONB array of objects contains an entry whose p_key equals p_email
+-- (case-insensitive) and, optionally, whose "role" is one of p_roles.
+CREATE OR REPLACE FUNCTION public.jsonb_has_email(
+    p_arr jsonb,
+    p_email text,
+    p_key text DEFAULT 'email',
+    p_roles text[] DEFAULT NULL
+)
+RETURNS boolean
+LANGUAGE sql IMMUTABLE
+AS $$
+    SELECT coalesce(p_email, '') <> '' AND
+        CASE WHEN jsonb_typeof(p_arr) = 'array' THEN
+            EXISTS (
+                SELECT 1 FROM jsonb_array_elements(p_arr) e
+                WHERE jsonb_typeof(e) = 'object'
+                  AND lower(btrim(coalesce(e ->> p_key, ''))) = p_email
+                  AND (p_roles IS NULL OR (e ->> 'role') = ANY (p_roles))
+            )
+        ELSE false END
+$$;
+
+-- Owner, or shared with role edit/admin: may create/edit/delete transactions on the account.
+CREATE OR REPLACE FUNCTION public.can_transact_account(p_account_id text)
+RETURNS boolean
+LANGUAGE sql STABLE
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.accounts a
+        WHERE a.id = p_account_id
+          AND (
+              lower(btrim(a.owner_email)) = public.current_email()
+              OR public.jsonb_has_email(a.shared_with, public.current_email(), 'email', ARRAY['edit', 'admin'])
+          )
+    )
+$$;
+
+
+-- The next three are used by the INSERT policies. The app saves with upsert
+-- (INSERT ... ON CONFLICT DO UPDATE) and Postgres checks the INSERT policy on the
+-- proposed row even when it turns into an UPDATE. So an editor/member saving a record
+-- someone else created must be allowed when that record already exists and is theirs to edit.
+CREATE OR REPLACE FUNCTION public.group_visible(p_id text)
+RETURNS boolean LANGUAGE sql STABLE
+AS $$ SELECT EXISTS (SELECT 1 FROM public.groups g WHERE g.id = p_id) $$;
+
+CREATE OR REPLACE FUNCTION public.account_editable(p_id text)
+RETURNS boolean LANGUAGE sql STABLE
+AS $$ SELECT public.can_transact_account(p_id) $$;
+
+CREATE OR REPLACE FUNCTION public.transaction_editable(p_id text)
+RETURNS boolean LANGUAGE sql STABLE
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.transactions t
+        WHERE t.id = p_id
+          AND (lower(btrim(t.created_by)) = public.current_email()
+               OR (t.account_id IS NOT NULL AND public.can_transact_account(t.account_id)))
+    )
+$$;
+
+-- ------------------------------------------------------------------------------
+-- 6.1 REMOVE EVERY EXISTING POLICY ON THE APP TABLES
+-- (permissive policies are OR-ed together, so one leftover "allow all" would
+--  silently cancel every rule below)
+-- ------------------------------------------------------------------------------
 DO $$
+DECLARE r record;
 BEGIN
-    -- Profiles
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'profiles' AND policyname = 'Allow all access to profiles') THEN
-        CREATE POLICY "Allow all access to profiles" ON public.profiles FOR ALL USING (true) WITH CHECK (true);
-    END IF;
-
-    -- Categories
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'categories' AND policyname = 'Allow all access to categories') THEN
-        CREATE POLICY "Allow all access to categories" ON public.categories FOR ALL USING (true) WITH CHECK (true);
-    END IF;
-
-    -- Accounts
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'accounts' AND policyname = 'Allow all access to accounts') THEN
-        CREATE POLICY "Allow all access to accounts" ON public.accounts FOR ALL USING (true) WITH CHECK (true);
-    END IF;
-
-    -- Loans
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'loans' AND policyname = 'Allow all access to loans') THEN
-        CREATE POLICY "Allow all access to loans" ON public.loans FOR ALL USING (true) WITH CHECK (true);
-    END IF;
-
-    -- Groups
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'groups' AND policyname = 'Allow all access to groups') THEN
-        CREATE POLICY "Allow all access to groups" ON public.groups FOR ALL USING (true) WITH CHECK (true);
-    END IF;
-
-    -- Group Activity Logs
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'group_activity_logs' AND policyname = 'Allow all access to group_activity_logs') THEN
-        CREATE POLICY "Allow all access to group_activity_logs" ON public.group_activity_logs FOR ALL USING (true) WITH CHECK (true);
-    END IF;
-
-    -- Friends
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'friends' AND policyname = 'Allow all access to friends') THEN
-        CREATE POLICY "Allow all access to friends" ON public.friends FOR ALL USING (true) WITH CHECK (true);
-    END IF;
-
-    -- Transactions
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'transactions' AND policyname = 'Allow all access to transactions') THEN
-        CREATE POLICY "Allow all access to transactions" ON public.transactions FOR ALL USING (true) WITH CHECK (true);
-    END IF;
-
-    -- Rules
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'rules' AND policyname = 'Allow all access to rules') THEN
-        CREATE POLICY "Allow all access to rules" ON public.rules FOR ALL USING (true) WITH CHECK (true);
-    END IF;
-
-    -- Budgets
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'budgets' AND policyname = 'Allow all access to budgets') THEN
-        CREATE POLICY "Allow all access to budgets" ON public.budgets FOR ALL USING (true) WITH CHECK (true);
-    END IF;
+    FOR r IN
+        SELECT policyname, tablename FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename IN ('profiles', 'categories', 'accounts', 'loans', 'groups',
+                            'group_activity_logs', 'friends', 'transactions', 'rules', 'budgets')
+    LOOP
+        EXECUTE format('DROP POLICY %I ON public.%I', r.policyname, r.tablename);
+    END LOOP;
 END $$;
 
+-- ------------------------------------------------------------------------------
+-- 6.2 POLICIES (authenticated users only; the anon role gets no rows at all)
+-- ------------------------------------------------------------------------------
+
+-- PROFILES: you can only see and change your own profile.
+-- (Looking up other people goes through the lookup RPCs in 6.5.)
+CREATE POLICY profiles_select ON public.profiles FOR SELECT TO authenticated
+    USING (id = (SELECT auth.uid())::text OR lower(btrim(email)) = (SELECT public.current_email()));
+CREATE POLICY profiles_insert ON public.profiles FOR INSERT TO authenticated
+    WITH CHECK (lower(btrim(email)) = (SELECT public.current_email()));
+CREATE POLICY profiles_update ON public.profiles FOR UPDATE TO authenticated
+    USING (id = (SELECT auth.uid())::text OR lower(btrim(email)) = (SELECT public.current_email()))
+    WITH CHECK (lower(btrim(email)) = (SELECT public.current_email()));
+CREATE POLICY profiles_delete ON public.profiles FOR DELETE TO authenticated
+    USING (id = (SELECT auth.uid())::text OR lower(btrim(email)) = (SELECT public.current_email()));
+
+-- CATEGORIES: everyone can read global templates and legacy unscoped rows,
+-- but you can only write your own.
+CREATE POLICY categories_select ON public.categories FOR SELECT TO authenticated
+    USING (is_global = true OR user_email IS NULL OR lower(btrim(user_email)) = (SELECT public.current_email()));
+CREATE POLICY categories_insert ON public.categories FOR INSERT TO authenticated
+    WITH CHECK (lower(btrim(user_email)) = (SELECT public.current_email()));
+CREATE POLICY categories_update ON public.categories FOR UPDATE TO authenticated
+    USING (lower(btrim(user_email)) = (SELECT public.current_email()))
+    WITH CHECK (lower(btrim(user_email)) = (SELECT public.current_email()));
+CREATE POLICY categories_delete ON public.categories FOR DELETE TO authenticated
+    USING (lower(btrim(user_email)) = (SELECT public.current_email()));
+
+-- RULES: same model as categories.
+CREATE POLICY rules_select ON public.rules FOR SELECT TO authenticated
+    USING (is_global = true OR user_email IS NULL OR lower(btrim(user_email)) = (SELECT public.current_email()));
+CREATE POLICY rules_insert ON public.rules FOR INSERT TO authenticated
+    WITH CHECK (lower(btrim(user_email)) = (SELECT public.current_email()));
+CREATE POLICY rules_update ON public.rules FOR UPDATE TO authenticated
+    USING (lower(btrim(user_email)) = (SELECT public.current_email()))
+    WITH CHECK (lower(btrim(user_email)) = (SELECT public.current_email()));
+CREATE POLICY rules_delete ON public.rules FOR DELETE TO authenticated
+    USING (lower(btrim(user_email)) = (SELECT public.current_email()));
+
+-- BUDGETS: private to the owner.
+CREATE POLICY budgets_all ON public.budgets FOR ALL TO authenticated
+    USING (lower(btrim(user_email)) = (SELECT public.current_email()))
+    WITH CHECK (lower(btrim(user_email)) = (SELECT public.current_email()));
+
+-- LOANS: private to the owner.
+CREATE POLICY loans_all ON public.loans FOR ALL TO authenticated
+    USING (lower(btrim(user_email)) = (SELECT public.current_email())
+        OR lower(btrim(owner_email)) = (SELECT public.current_email()))
+    WITH CHECK (lower(btrim(user_email)) = (SELECT public.current_email())
+        OR lower(btrim(owner_email)) = (SELECT public.current_email()));
+
+-- ACCOUNTS: owner, plus anyone listed in shared_with.
+-- view = read only, edit/admin = may update, only the owner may delete.
+CREATE POLICY accounts_select ON public.accounts FOR SELECT TO authenticated
+    USING (lower(btrim(owner_email)) = (SELECT public.current_email())
+        OR public.jsonb_has_email(shared_with, (SELECT public.current_email())));
+CREATE POLICY accounts_insert ON public.accounts FOR INSERT TO authenticated
+    WITH CHECK (lower(btrim(owner_email)) = (SELECT public.current_email())
+        OR public.account_editable(id));
+CREATE POLICY accounts_update ON public.accounts FOR UPDATE TO authenticated
+    USING (lower(btrim(owner_email)) = (SELECT public.current_email())
+        OR public.jsonb_has_email(shared_with, (SELECT public.current_email()), 'email', ARRAY['edit', 'admin']))
+    WITH CHECK (lower(btrim(owner_email)) = (SELECT public.current_email())
+        OR public.jsonb_has_email(shared_with, (SELECT public.current_email()), 'email', ARRAY['edit', 'admin']));
+CREATE POLICY accounts_delete ON public.accounts FOR DELETE TO authenticated
+    USING (lower(btrim(owner_email)) = (SELECT public.current_email()));
+
+-- GROUPS: creator and listed members. Any member may update (add expenses, add or
+-- leave members). Only the creator or a group admin may delete.
+CREATE POLICY groups_select ON public.groups FOR SELECT TO authenticated
+    USING (lower(btrim(created_by)) = (SELECT public.current_email())
+        OR public.jsonb_has_email(members, (SELECT public.current_email())));
+CREATE POLICY groups_insert ON public.groups FOR INSERT TO authenticated
+    WITH CHECK (lower(btrim(created_by)) = (SELECT public.current_email())
+        OR public.group_visible(id));
+CREATE POLICY groups_update ON public.groups FOR UPDATE TO authenticated
+    USING (lower(btrim(created_by)) = (SELECT public.current_email())
+        OR public.jsonb_has_email(members, (SELECT public.current_email())))
+    WITH CHECK (true);  -- created_by is protected by a trigger below; leaving uses leave_group()
+CREATE POLICY groups_delete ON public.groups FOR DELETE TO authenticated
+    USING (lower(btrim(created_by)) = (SELECT public.current_email())
+        OR public.jsonb_has_email(members, (SELECT public.current_email()), 'email', ARRAY['admin']));
+
+-- GROUP ACTIVITY LOGS: visible to / writable by anyone who can see the group.
+CREATE POLICY group_logs_select ON public.group_activity_logs FOR SELECT TO authenticated
+    USING (EXISTS (SELECT 1 FROM public.groups g WHERE g.id = group_activity_logs.group_id));
+CREATE POLICY group_logs_insert ON public.group_activity_logs FOR INSERT TO authenticated
+    WITH CHECK (EXISTS (SELECT 1 FROM public.groups g WHERE g.id = group_activity_logs.group_id));
+
+-- FRIENDS: your own rows, plus the mirror rows other people keep about you
+-- (email = you), which the app uses to keep both sides of a debt in sync.
+CREATE POLICY friends_select ON public.friends FOR SELECT TO authenticated
+    USING (lower(btrim(user_email)) = (SELECT public.current_email())
+        OR lower(btrim(owner_email)) = (SELECT public.current_email())
+        OR lower(btrim(email)) = (SELECT public.current_email()));
+CREATE POLICY friends_insert ON public.friends FOR INSERT TO authenticated
+    WITH CHECK (lower(btrim(user_email)) = (SELECT public.current_email())
+        OR lower(btrim(owner_email)) = (SELECT public.current_email())
+        OR lower(btrim(email)) = (SELECT public.current_email()));
+CREATE POLICY friends_update ON public.friends FOR UPDATE TO authenticated
+    USING (lower(btrim(user_email)) = (SELECT public.current_email())
+        OR lower(btrim(owner_email)) = (SELECT public.current_email())
+        OR lower(btrim(email)) = (SELECT public.current_email()))
+    WITH CHECK (lower(btrim(user_email)) = (SELECT public.current_email())
+        OR lower(btrim(owner_email)) = (SELECT public.current_email())
+        OR lower(btrim(email)) = (SELECT public.current_email()));
+CREATE POLICY friends_delete ON public.friends FOR DELETE TO authenticated
+    USING (lower(btrim(user_email)) = (SELECT public.current_email())
+        OR lower(btrim(owner_email)) = (SELECT public.current_email())
+        OR lower(btrim(email)) = (SELECT public.current_email()));
+
+-- TRANSACTIONS: same visibility the app already applies in the browser:
+-- you created it, you can access its account, or you are named in its split.
+CREATE POLICY transactions_select ON public.transactions FOR SELECT TO authenticated
+    USING (
+        lower(btrim(created_by)) = (SELECT public.current_email())
+        OR public.jsonb_has_email(split_details, (SELECT public.current_email()), 'memberEmail')
+        OR EXISTS (SELECT 1 FROM public.accounts a
+                   WHERE a.id = transactions.account_id OR a.id = transactions.to_account_id)
+    );
+CREATE POLICY transactions_insert ON public.transactions FOR INSERT TO authenticated
+    WITH CHECK (
+        (lower(btrim(created_by)) = (SELECT public.current_email())
+         AND (account_id IS NULL OR public.can_transact_account(account_id)))
+        OR public.transaction_editable(id)
+    );
+CREATE POLICY transactions_update ON public.transactions FOR UPDATE TO authenticated
+    USING (
+        lower(btrim(created_by)) = (SELECT public.current_email())
+        OR (account_id IS NOT NULL AND public.can_transact_account(account_id))
+    )
+    WITH CHECK (
+        lower(btrim(created_by)) = (SELECT public.current_email())
+        OR (account_id IS NOT NULL AND public.can_transact_account(account_id))
+    );
+CREATE POLICY transactions_delete ON public.transactions FOR DELETE TO authenticated
+    USING (
+        lower(btrim(created_by)) = (SELECT public.current_email())
+        OR (account_id IS NOT NULL AND public.can_transact_account(account_id))
+    );
+
+-- ------------------------------------------------------------------------------
+-- 6.3 GUARD TRIGGERS (RLS cannot restrict individual columns, these do)
+-- Requests without a user email (service role, SQL editor) are not restricted.
+-- ------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.guard_account_update()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE me text := public.current_email();
+BEGIN
+    IF me = '' OR lower(btrim(OLD.owner_email)) = me THEN
+        RETURN NEW;
+    END IF;
+    IF NEW.owner_email IS DISTINCT FROM OLD.owner_email THEN
+        RAISE EXCEPTION 'Only the account owner can change ownership';
+    END IF;
+    IF NEW.shared_with IS DISTINCT FROM OLD.shared_with
+       AND NOT public.jsonb_has_email(OLD.shared_with, me, 'email', ARRAY['admin']) THEN
+        RAISE EXCEPTION 'Only the owner or an admin can change who an account is shared with';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_guard_account_update ON public.accounts;
+CREATE TRIGGER trg_guard_account_update BEFORE UPDATE ON public.accounts
+    FOR EACH ROW EXECUTE FUNCTION public.guard_account_update();
+
+CREATE OR REPLACE FUNCTION public.guard_group_update()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF public.current_email() <> '' THEN
+        NEW.created_by := OLD.created_by;  -- nobody can take over or reassign a group
+    END IF;
+    RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_guard_group_update ON public.groups;
+CREATE TRIGGER trg_guard_group_update BEFORE UPDATE ON public.groups
+    FOR EACH ROW EXECUTE FUNCTION public.guard_group_update();
+
+CREATE OR REPLACE FUNCTION public.guard_transaction_update()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF public.current_email() <> '' THEN
+        NEW.created_by := OLD.created_by;  -- the author of a transaction cannot be rewritten
+    END IF;
+    RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_guard_transaction_update ON public.transactions;
+CREATE TRIGGER trg_guard_transaction_update BEFORE UPDATE ON public.transactions
+    FOR EACH ROW EXECUTE FUNCTION public.guard_transaction_update();
+
+-- ------------------------------------------------------------------------------
+-- 6.4 LOCK DOWN THE SECURITY DEFINER SUMMARY FUNCTION
+-- It used to bypass RLS and trusted a caller-supplied email, so anyone could read
+-- anyone's financial summary. It now runs with the caller's rights (RLS applies)
+-- and is not callable without signing in.
+-- ------------------------------------------------------------------------------
+ALTER FUNCTION public.get_user_financial_summary(text) SECURITY INVOKER;
+REVOKE EXECUTE ON FUNCTION public.get_user_financial_summary(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_user_financial_summary(text) TO authenticated;
+
+-- ------------------------------------------------------------------------------
+-- 6.5 SAFE CROSS-USER LOOKUPS (replace direct reads of other people's profiles)
+-- ------------------------------------------------------------------------------
+-- Find ONE person by exact email or by 10-digit phone number (for "add friend").
+CREATE OR REPLACE FUNCTION public.lookup_profile(p_query text)
+RETURNS TABLE (name text, email text, avatar_color text, phone text, country_code text)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+    SELECT p.name, p.email, p.avatar_color, p.phone, p.country_code
+    FROM public.profiles p
+    WHERE auth.uid() IS NOT NULL
+      AND p_query IS NOT NULL
+      AND (
+          lower(btrim(p.email)) = lower(btrim(p_query))
+          OR (
+              length(regexp_replace(p_query, '[^0-9]', '', 'g')) >= 10
+              AND right(regexp_replace(coalesce(p.phone, ''), '[^0-9]', '', 'g'), 10)
+                  = right(regexp_replace(p_query, '[^0-9]', '', 'g'), 10)
+          )
+      )
+    LIMIT 1
+$$;
+
+-- Display names / avatars for people you already have a friend link with (either direction).
+CREATE OR REPLACE FUNCTION public.get_friend_profiles(p_emails text[])
+RETURNS TABLE (email text, name text, avatar_color text, phone text)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+    SELECT p.email, p.name, p.avatar_color, p.phone
+    FROM public.profiles p
+    WHERE auth.uid() IS NOT NULL
+      AND lower(btrim(p.email)) IN (SELECT lower(btrim(e)) FROM unnest(p_emails) AS e)
+      AND (
+          lower(btrim(p.email)) = public.current_email()
+          OR EXISTS (
+              SELECT 1 FROM public.friends f
+              WHERE (lower(btrim(f.user_email)) = public.current_email() AND lower(btrim(f.email)) = lower(btrim(p.email)))
+                 OR (lower(btrim(f.email)) = public.current_email() AND lower(btrim(f.user_email)) = lower(btrim(p.email)))
+          )
+      )
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.lookup_profile(text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.get_friend_profiles(text[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.lookup_profile(text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_friend_profiles(text[]) TO authenticated;
+
+
+-- A member who removes THEMSELVES can no longer see the group afterwards, and Postgres
+-- rejects an UPDATE whose result the caller could not read. This function does it safely.
+CREATE OR REPLACE FUNCTION public.leave_group(p_group_id text)
+RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE me text := public.current_email();
+BEGIN
+    IF me = '' THEN
+        RETURN false;
+    END IF;
+    UPDATE public.groups g
+    SET members = coalesce(
+        (SELECT jsonb_agg(m) FROM jsonb_array_elements(g.members) m
+         WHERE lower(btrim(coalesce(m ->> 'email', ''))) <> me), '[]'::jsonb)
+    WHERE g.id = p_group_id AND public.jsonb_has_email(g.members, me);
+    RETURN FOUND;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.leave_group(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.leave_group(text) TO authenticated;
+
+-- ------------------------------------------------------------------------------
+-- 6.6 CREATE THE PROFILE ROW AUTOMATICALLY ON SIGN-UP
+-- With email confirmation on, sign-up returns no session, so the browser cannot
+-- insert the profile itself under RLS. The sign-up form already sends name,
+-- currency, avatar_color and monthly_budget as user metadata; this uses them.
+-- ------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.handle_new_auth_user()
+RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE v_budget text := NEW.raw_user_meta_data ->> 'monthly_budget';
+BEGIN
+    IF NEW.email IS NULL OR btrim(NEW.email) = '' THEN
+        RETURN NEW;
+    END IF;
+    INSERT INTO public.profiles (id, name, email, currency, avatar_color, monthly_budget)
+    VALUES (
+        NEW.id::text,
+        left(coalesce(nullif(btrim(NEW.raw_user_meta_data ->> 'name'), ''), split_part(NEW.email, '@', 1), 'User'), 100),
+        lower(btrim(NEW.email)),
+        left(coalesce(nullif(NEW.raw_user_meta_data ->> 'currency', ''), '₹'), 8),
+        left(coalesce(nullif(NEW.raw_user_meta_data ->> 'avatar_color', ''), '#3B82F6'), 16),
+        CASE WHEN v_budget ~ '^[0-9]{1,12}([.][0-9]+)?$' THEN v_budget::numeric ELSE 50000 END
+    )
+    ON CONFLICT DO NOTHING;
+    RETURN NEW;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.handle_new_auth_user() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users
+    FOR EACH ROW EXECUTE FUNCTION public.handle_new_auth_user();
+
 -- ==============================================================================
--- 7. SEED DEFAULT UNIVERSAL CATEGORIES
+-- 7. SEED DEFAULT UNIVERSAL CATEGORIES & RULES (GLOBAL TEMPLATES)
 -- ==============================================================================
-INSERT INTO public.categories (id, name, icon, color, type, budget_limit)
+INSERT INTO public.categories (id, name, icon, color, type, budget_limit, parent_id, is_global, user_email)
 VALUES 
-    ('cat-1', 'Food & Dining', 'Utensils', '#F97316', 'expense', 12000),
-    ('cat-2', 'Shopping & Electronics', 'ShoppingBag', '#8B5CF6', 'expense', 8000),
-    ('cat-3', 'Housing & Rent', 'Home', '#EC4899', 'expense', 20000),
-    ('cat-4', 'Transport & Fuel', 'Car', '#06B6D4', 'expense', 5000),
-    ('cat-5', 'Entertainment & Trips', 'Film', '#EAB308', 'expense', 4000),
-    ('cat-6', 'EMI & Loan Repayment', 'CreditCard', '#EF4444', 'expense', NULL),
-    ('cat-7', 'Utilities & Bills', 'Zap', '#10B981', 'expense', 3500),
-    ('cat-8', 'Salary & Invoicing', 'Briefcase', '#22C55E', 'income', NULL),
-    ('cat-9', 'Investments & Returns', 'TrendingUp', '#6366F1', 'income', NULL),
-    ('cat-10', 'Friend Settlement', 'Users', '#64748B', 'expense', NULL)
+    -- Main Categories
+    ('cat-1', 'Food & Dining', 'Utensils', '#F97316', 'expense', 12000, NULL, true, NULL),
+    ('cat-2', 'Shopping & Electronics', 'ShoppingBag', '#8B5CF6', 'expense', 8000, NULL, true, NULL),
+    ('cat-3', 'Housing & Rent', 'Home', '#EC4899', 'expense', 20000, NULL, true, NULL),
+    ('cat-4', 'Transport & Fuel', 'Car', '#06B6D4', 'expense', 5000, NULL, true, NULL),
+    ('cat-5', 'Entertainment & Trips', 'Film', '#EAB308', 'expense', 4000, NULL, true, NULL),
+    ('cat-6', 'EMI & Loan Repayment', 'CreditCard', '#EF4444', 'expense', NULL, NULL, true, NULL),
+    ('cat-7', 'Utilities & Bills', 'Zap', '#10B981', 'expense', 3500, NULL, true, NULL),
+    ('cat-8', 'Salary & Invoicing', 'Briefcase', '#22C55E', 'income', NULL, NULL, true, NULL),
+    ('cat-9', 'Investments & Returns', 'TrendingUp', '#6366F1', 'income', NULL, NULL, true, NULL),
+    ('cat-10', 'Friend Settlement', 'Users', '#64748B', 'expense', NULL, NULL, true, NULL),
+
+    -- Subcategories for Food & Dining
+    ('cat-1-1', 'Groceries & Provisions', 'ShoppingBag', '#F97316', 'expense', 6000, 'cat-1', true, NULL),
+    ('cat-1-2', 'Restaurants & Dining Out', 'Coffee', '#FB923C', 'expense', 4000, 'cat-1', true, NULL),
+    ('cat-1-3', 'Online Food Delivery', 'Utensils', '#EA580C', 'expense', 2000, 'cat-1', true, NULL),
+
+    -- Subcategories for Shopping
+    ('cat-2-1', 'Clothing & Footwear', 'Shirt', '#8B5CF6', 'expense', NULL, 'cat-2', true, NULL),
+    ('cat-2-2', 'Electronics & Gadgets', 'Smartphone', '#A855F7', 'expense', NULL, 'cat-2', true, NULL),
+
+    -- Subcategories for Housing
+    ('cat-3-1', 'Rent & Lease', 'Home', '#EC4899', 'expense', NULL, 'cat-3', true, NULL),
+    ('cat-3-2', 'Home Maintenance & Repair', 'Wrench', '#F43F5E', 'expense', NULL, 'cat-3', true, NULL),
+
+    -- Subcategories for Transport
+    ('cat-4-1', 'Fuel & Petrol', 'Fuel', '#06B6D4', 'expense', NULL, 'cat-4', true, NULL),
+    ('cat-4-2', 'Cab & Auto (Uber/Ola)', 'Car', '#0891B2', 'expense', NULL, 'cat-4', true, NULL),
+    ('cat-4-3', 'Public Transit & Metro', 'Bus', '#0EA5E9', 'expense', NULL, 'cat-4', true, NULL),
+
+    -- Subcategories for Entertainment
+    ('cat-5-1', 'Movies & Concerts', 'Film', '#EAB308', 'expense', NULL, 'cat-5', true, NULL),
+    ('cat-5-2', 'Subscriptions & OTT', 'Tv', '#F59E0B', 'expense', NULL, 'cat-5', true, NULL),
+
+    -- Subcategories for Utilities
+    ('cat-7-1', 'Electricity & Water', 'Zap', '#10B981', 'expense', NULL, 'cat-7', true, NULL),
+    ('cat-7-2', 'WiFi & Mobile Phone', 'Wifi', '#059669', 'expense', NULL, 'cat-7', true, NULL)
 ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,
     icon = EXCLUDED.icon,
     color = EXCLUDED.color,
-    type = EXCLUDED.type;
+    type = EXCLUDED.type,
+    parent_id = EXCLUDED.parent_id,
+    is_global = true;
+
+-- Seed default global rules template
+INSERT INTO public.rules (id, name, keyword, match_type, category_id, is_active, is_enabled, is_global, user_email)
+VALUES
+    ('rule-global-1', 'Coffee & Cafes', 'starbucks, cafe, coffee, barista, dunkin, costa, blue tokai, third wave', 'contains', 'cat-1-2', true, true, true, NULL),
+    ('rule-global-2', 'Rideshare & Taxis', 'uber, ola, lyft, grab, cab, taxi, rapido', 'contains', 'cat-4-2', true, true, true, NULL),
+    ('rule-global-3', 'Food Delivery & Restaurants', 'swiggy, zomato, doordash, mcdonalds, dominos, pizza, burger, dining, restaurant, subway', 'contains', 'cat-1-3', true, true, true, NULL),
+    ('rule-global-4', 'Online Shopping', 'amazon, flipkart, myntra, zara, ebay, ajio, meesho, target, walmart', 'contains', 'cat-2', true, true, true, NULL),
+    ('rule-global-5', 'Entertainment & Streaming', 'netflix, spotify, prime video, hotstar, youtube, cinema, pvr, inox, movies, steam, playstation', 'contains', 'cat-5-2', true, true, true, NULL),
+    ('rule-global-6', 'Groceries & Daily Essentials', 'grocery, blinkit, zepto, instamart, supermarket, bigbasket, nature basket, costco, traders joe', 'contains', 'cat-1-1', true, true, true, NULL),
+    ('rule-global-7', 'Fuel & Gas Stations', 'shell, petrol, diesel, fuel, chevron, bp, exxon, gas station, indian oil, hpcl, bharat petroleum', 'contains', 'cat-4-1', true, true, true, NULL),
+    ('rule-global-8', 'Salary & Earnings', 'salary, payroll, stipend, client payment, consulting fee, freelance payout, dividend', 'contains', 'cat-8', true, true, true, NULL),
+    ('rule-global-9', 'Housing & Rent', 'rent, maintenance, landlord, apartment, society dues', 'contains', 'cat-3-1', true, true, true, NULL)
+ON CONFLICT (id) DO NOTHING;
