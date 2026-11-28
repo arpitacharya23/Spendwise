@@ -519,12 +519,47 @@ export default function App() {
     setTimeout(() => setLogoutNotice(null), 4000);
   };
 
+  const registerWhatsAppProfile = useCallback(async (profileToSync?: UserProfile | null) => {
+    const target = profileToSync || dataRef.current.user;
+    if (!target?.email) return;
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token;
+      if (!token) return;
+
+      let defaultAccountId: string | undefined;
+      try {
+        defaultAccountId =
+          localStorage.getItem(`spendwise_wa_default_acc_${target.email.toLowerCase()}`) ||
+          undefined;
+      } catch {
+        defaultAccountId = undefined;
+      }
+
+      await fetch('/api/v1/whatsapp/register-profile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          phone: target.phone || '',
+          countryCode: target.countryCode || '+91',
+          defaultAccountId,
+        }),
+      });
+    } catch (err) {
+      console.warn('WhatsApp profile registration warning:', err);
+    }
+  }, []);
+
   const handleSaveProfile = async (updatedUser: UserProfile) => {
     setUser(updatedUser);
     markDataModified();
     try {
       await saveSupabaseProfile(updatedUser);
       localStorage.setItem('spendwise_auth_user', JSON.stringify(updatedUser));
+      await registerWhatsAppProfile(updatedUser);
     } catch (err) {
       console.error('Profile save failed:', err);
     }
@@ -592,13 +627,13 @@ export default function App() {
       }
     }
 
-    setTransactions([newTx, ...transactions]);
+    setTransactions(prev => [newTx, ...prev]);
     saveSupabaseTransaction(newTx);
     markDataModified();
 
     // Update account balance if account exists
-    if (accounts.some(a => a.id === newTx.accountId)) {
-      setAccounts(accounts.map(acc => {
+    setAccounts(prev =>
+      prev.map(acc => {
         if (acc.id === newTx.accountId) {
           let updatedAcc: Account;
           if (acc.type === 'credit_card') {
@@ -613,25 +648,170 @@ export default function App() {
           return updatedAcc;
         }
         return acc;
-      }));
-    }
+      })
+    );
 
     // If EMI linked, update loan
     if (newTx.emiId) {
-      setLoans(loans.map(loan => {
-        if (loan.id === newTx.emiId) {
-          const updatedLoan = {
-            ...loan,
-            remainingPrincipal: Math.max(0, loan.remainingPrincipal - newTx.amount),
-            paidTenureMonths: loan.paidTenureMonths + 1,
-          };
-          saveSupabaseLoan(updatedLoan);
-          return updatedLoan;
-        }
-        return loan;
-      }));
+      setLoans(prev =>
+        prev.map(loan => {
+          if (loan.id === newTx.emiId) {
+            const updatedLoan = {
+              ...loan,
+              remainingPrincipal: Math.max(0, loan.remainingPrincipal - newTx.amount),
+              paidTenureMonths: loan.paidTenureMonths + 1,
+            };
+            saveSupabaseLoan(updatedLoan);
+            return updatedLoan;
+          }
+          return loan;
+        })
+      );
     }
   };
+
+  // Automatic WhatsApp (Kapso) Inbox Sync
+  const isSyncingWhatsAppRef = useRef(false);
+  const importedWhatsAppIdsRef = useRef<Set<string>>(new Set());
+
+  const syncWhatsAppInbox = useCallback(async () => {
+    if (!user?.email || isSyncingWhatsAppRef.current) return;
+    isSyncingWhatsAppRef.current = true;
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token;
+      if (!token) return;
+
+      const res = await fetch('/api/v1/whatsapp/messages', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const payload = await res.json();
+      const items = Array.isArray(payload?.items) ? payload.items : [];
+
+      const pending = items.filter(
+        (item: any) =>
+          item?.id &&
+          item?.parsedTx &&
+          !item.syncedToClient &&
+          !importedWhatsAppIdsRef.current.has(item.id)
+      );
+
+      if (pending.length === 0) return;
+
+      const currentAccounts = dataRef.current.accounts;
+      const currentCategories = dataRef.current.categories;
+      const currentRules = dataRef.current.rules;
+      const ackIds: string[] = [];
+
+      for (const item of pending) {
+        importedWhatsAppIdsRef.current.add(item.id);
+        const parsed = item.parsedTx;
+        const ruleMatch = findMatchingRule(parsed.title, currentRules);
+
+        const accountHintLower = (parsed.accountHint || '').toLowerCase();
+        const matchedAccount = accountHintLower
+          ? currentAccounts.find(
+              (a) =>
+                a.name.toLowerCase().includes(accountHintLower) ||
+                (a.bankName || '').toLowerCase().includes(accountHintLower)
+            )
+          : undefined;
+
+        const categoryHintLower = (parsed.categoryHint || '').toLowerCase();
+        const matchedCategory = categoryHintLower
+          ? currentCategories.find((c) => c.name.toLowerCase().includes(categoryHintLower))
+          : undefined;
+
+        let storedDefaultAccountId: string | undefined;
+        try {
+          storedDefaultAccountId =
+            localStorage.getItem(`spendwise_wa_default_acc_${user.email.toLowerCase()}`) ||
+            undefined;
+        } catch {
+          storedDefaultAccountId = undefined;
+        }
+
+        const resolvedDefaultAccount =
+          (parsed.defaultAccountId && currentAccounts.some(a => a.id === parsed.defaultAccountId)
+            ? parsed.defaultAccountId
+            : undefined) ||
+          (storedDefaultAccountId && currentAccounts.some(a => a.id === storedDefaultAccountId)
+            ? storedDefaultAccountId
+            : undefined);
+
+        const resolvedAccountId =
+          matchedAccount?.id ||
+          ruleMatch?.suggestedAccountId ||
+          resolvedDefaultAccount ||
+          currentAccounts[0]?.id ||
+          'acc-default';
+
+        const resolvedCategoryId =
+          matchedCategory?.id ||
+          ruleMatch?.suggestedCategoryId ||
+          currentCategories[0]?.id ||
+          'cat-1';
+
+        const resolvedType =
+          parsed.type || ruleMatch?.suggestedType || 'expense';
+
+        handleSaveExpense({
+          title: parsed.title,
+          amount: parsed.amount,
+          type: resolvedType,
+          accountId: resolvedAccountId,
+          categoryId: resolvedCategoryId,
+          date: parsed.date,
+          notes: parsed.notes,
+        });
+
+        if (ruleMatch?.rule?.id) {
+          handleIncrementRuleMatch(ruleMatch.rule.id);
+        }
+
+        ackIds.push(item.id);
+      }
+
+      if (ackIds.length > 0) {
+        await fetch('/api/v1/whatsapp/messages/ack', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ ids: ackIds }),
+        });
+        window.dispatchEvent(new CustomEvent('spendwise_whatsapp_synced'));
+      }
+    } catch (err) {
+      console.warn('WhatsApp inbox sync warning:', err);
+    } finally {
+      isSyncingWhatsAppRef.current = false;
+    }
+  }, [user?.email]);
+
+  useEffect(() => {
+    if (!user?.email) return;
+    let cancelled = false;
+    const initAndSync = async () => {
+      await registerWhatsAppProfile(user);
+      if (!cancelled) {
+        await syncWhatsAppInbox();
+      }
+    };
+    initAndSync();
+    const interval = setInterval(syncWhatsAppInbox, 20000);
+    const onManualSync = () => {
+      syncWhatsAppInbox();
+    };
+    window.addEventListener('spendwise_whatsapp_sync', onManualSync);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      window.removeEventListener('spendwise_whatsapp_sync', onManualSync);
+    };
+  }, [user?.email, user?.phone, user?.countryCode, registerWhatsAppProfile, syncWhatsAppInbox]);
 
   // HANDLER: Add New Bank / Card Account
   const handleAddAccount = (accData: Partial<Account>) => {
@@ -1889,6 +2069,7 @@ export default function App() {
               loans={loans}
               rules={rules}
               onAddTransaction={handleSaveExpense}
+              onSyncWhatsApp={syncWhatsAppInbox}
               onRestoreFromSheets={(restored) => {
                 if (restored.accounts && restored.accounts.length > 0) setAccounts(restored.accounts);
                 if (restored.transactions && restored.transactions.length > 0) setTransactions(restored.transactions);

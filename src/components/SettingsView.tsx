@@ -60,6 +60,7 @@ import {
   SPENDWISE_APPS_SCRIPT_CODE
 } from '../lib/googleSheetsService';
 import { ApiSettingsSection } from './ApiSettingsSection';
+import { WhatsAppSettingsSection } from './WhatsAppSettingsSection';
 
 interface SettingsViewProps {
   user: UserProfile;
@@ -73,6 +74,7 @@ interface SettingsViewProps {
   loans: LoanEMI[];
   rules: TransactionRule[];
   onAddTransaction?: (tx: Transaction) => void;
+  onSyncWhatsApp?: () => Promise<void> | void;
   onRestoreFromSheets?: (data: {
     accounts?: Account[];
     transactions?: Transaction[];
@@ -121,6 +123,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   loans,
   rules,
   onAddTransaction,
+  onSyncWhatsApp,
   onRestoreFromSheets,
   onLogout,
 }) => {
@@ -1094,7 +1097,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       />
 
       {/* ---------------------------------------------------- */}
-      {/* SECTION 5: Account Logout */}
+      {/* SECTION 5: WhatsApp Integration (Kapso) */}
+      {/* ---------------------------------------------------- */}
+      <WhatsAppSettingsSection
+        user={user}
+        accounts={accounts}
+        transactions={transactions}
+        loans={loans}
+        onSaveProfile={onSaveProfile}
+        onSyncNow={onSyncWhatsApp}
+      />
+
+      {/* ---------------------------------------------------- */}
+      {/* SECTION 6: Account Logout */}
       {/* ---------------------------------------------------- */}
       <section className="bg-white rounded-3xl p-6 shadow-xs border border-slate-200/80 flex items-center justify-between">
         <div>

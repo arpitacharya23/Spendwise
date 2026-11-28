@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, User, Mail, DollarSign, Check, Phone } from 'lucide-react';
 import { UserProfile } from '../types';
 
@@ -47,6 +47,14 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const [phone, setPhone] = useState(user.phone || '');
   const [countryCode, setCountryCode] = useState(user.countryCode || '+91');
   const [avatarUrl, setAvatarUrl] = useState(user.avatarUrl || '');
+
+  useEffect(() => {
+    setName(user.name);
+    setCurrency(user.currency || '₹');
+    setPhone(user.phone || '');
+    setCountryCode(user.countryCode || '+91');
+    setAvatarUrl(user.avatarUrl || '');
+  }, [user, isOpen]);
 
   const selectedCountry = COUNTRY_CODES.find((entry) => entry.code === countryCode) || COUNTRY_CODES[3];
 
@@ -190,6 +198,9 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 />
               </div>
             </div>
+            <p className="text-[11px] text-slate-500 mt-1.5">
+              Used to match incoming Kapso WhatsApp messages directly to your SpendWise profile.
+            </p>
           </div>
 
           {/* Preferred Currency */}
