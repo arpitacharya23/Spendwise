@@ -37,7 +37,82 @@ export function saveStoredApiKey(key: string): void {
   }
 }
 
+const metaEnv = typeof import.meta !== 'undefined' ? (import.meta as any).env || {} : {};
+
+export const BACKEND_UNAVAILABLE_MESSAGE =
+  'SpendWise backend API (/api/v1/whatsapp/*) returned 404 on this host. This domain is serving a static frontend build without the Node.js server (server.ts). Deploy full-stack ("npm run build && npm start"), proxy /api/* to the Node server, or set VITE_API_BASE_URL to your running backend URL.';
+
+export function getBackendOrigin(): string {
+  const raw = typeof metaEnv.VITE_API_BASE_URL === 'string' ? metaEnv.VITE_API_BASE_URL.trim() : '';
+  if (!raw) return '';
+
+  try {
+    const parsed = new URL(raw);
+    const isLocalHttp =
+      parsed.protocol === 'http:' &&
+      (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1');
+    if (parsed.protocol !== 'https:' && !isLocalHttp) {
+      return '';
+    }
+    return parsed.origin;
+  } catch {
+    return '';
+  }
+}
+
+export function buildApiUrl(path: string): string {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const origin = getBackendOrigin();
+  return origin ? `${origin}${normalizedPath}` : normalizedPath;
+}
+
+export async function parseJsonSafely<T = Record<string, any>>(
+  res: Response
+): Promise<{ data: T | null; isJson: boolean; isBackendMissing: boolean }> {
+  const contentType = (res.headers.get('content-type') || '').toLowerCase();
+  const rawText = await res.text();
+  const trimmed = rawText.trim();
+
+  if (!trimmed) {
+    return {
+      data: null,
+      isJson: false,
+      isBackendMissing: res.status === 404,
+    };
+  }
+
+  if (
+    contentType.includes('application/json') ||
+    trimmed.startsWith('{') ||
+    trimmed.startsWith('[')
+  ) {
+    try {
+      return {
+        data: JSON.parse(trimmed) as T,
+        isJson: true,
+        isBackendMissing: false,
+      };
+    } catch {
+      return {
+        data: null,
+        isJson: false,
+        isBackendMissing: res.status === 404,
+      };
+    }
+  }
+
+  return {
+    data: null,
+    isJson: false,
+    isBackendMissing: res.status === 404,
+  };
+}
+
 export function getApiBaseUrl(): string {
+  const backendOrigin = getBackendOrigin();
+  if (backendOrigin) {
+    return `${backendOrigin}/api/v1`;
+  }
   if (typeof window !== 'undefined') {
     return `${window.location.origin}/api/v1`;
   }

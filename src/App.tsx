@@ -37,7 +37,8 @@ import {
 } from './types';
 import { initialRules } from './data/initialRules';
 import { initialDashboardCards } from './data/initialDashboardCards';
-import { findMatchingRule, applyRulesToTransactionsList } from './lib/ruleEngine';
+import { applyRulesToTransactionsList } from './lib/ruleEngine';
+import { buildApiUrl, parseJsonSafely } from './lib/apiService';
 import { Sidebar } from './components/Sidebar';
 import { DashboardView } from './components/DashboardView';
 import { AccountsView } from './components/AccountsView';
@@ -519,24 +520,17 @@ export default function App() {
     setTimeout(() => setLogoutNotice(null), 4000);
   };
 
+  const whatsappBackendUnavailableRef = useRef(false);
+
   const registerWhatsAppProfile = useCallback(async (profileToSync?: UserProfile | null) => {
     const target = profileToSync || dataRef.current.user;
-    if (!target?.email) return;
+    if (!target?.email || whatsappBackendUnavailableRef.current) return;
     try {
       const { data } = await supabase.auth.getSession();
       const token = data?.session?.access_token;
       if (!token) return;
 
-      let defaultAccountId: string | undefined;
-      try {
-        defaultAccountId =
-          localStorage.getItem(`spendwise_wa_default_acc_${target.email.toLowerCase()}`) ||
-          undefined;
-      } catch {
-        defaultAccountId = undefined;
-      }
-
-      await fetch('/api/v1/whatsapp/register-profile', {
+      const res = await fetch(buildApiUrl('/api/v1/whatsapp/register-profile'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -545,9 +539,14 @@ export default function App() {
         body: JSON.stringify({
           phone: target.phone || '',
           countryCode: target.countryCode || '+91',
-          defaultAccountId,
         }),
       });
+      if (res.status === 404) {
+        const parsed = await parseJsonSafely(res);
+        if (parsed.isBackendMissing) {
+          whatsappBackendUnavailableRef.current = true;
+        }
+      }
     } catch (err) {
       console.warn('WhatsApp profile registration warning:', err);
     }
@@ -670,126 +669,67 @@ export default function App() {
     }
   };
 
-  // Automatic WhatsApp (Kapso) Inbox Sync
+  // Automatic WhatsApp (Kapso) Ledger Refresh Sync
   const isSyncingWhatsAppRef = useRef(false);
-  const importedWhatsAppIdsRef = useRef<Set<string>>(new Set());
+  const ackedWhatsAppIdsRef = useRef<Set<string>>(new Set());
 
-  const syncWhatsAppInbox = useCallback(async () => {
+  const syncWhatsAppInbox = useCallback(async (forceRetry = false) => {
     if (!user?.email || isSyncingWhatsAppRef.current) return;
+    if (whatsappBackendUnavailableRef.current && !forceRetry) return;
     isSyncingWhatsAppRef.current = true;
     try {
       const { data } = await supabase.auth.getSession();
       const token = data?.session?.access_token;
       if (!token) return;
 
-      const res = await fetch('/api/v1/whatsapp/messages', {
+      const res = await fetch(buildApiUrl('/api/v1/whatsapp/messages'), {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (res.status === 404) {
+        const parsed = await parseJsonSafely(res);
+        if (parsed.isBackendMissing) {
+          whatsappBackendUnavailableRef.current = true;
+        }
+        return;
+      }
       if (!res.ok) return;
-      const payload = await res.json();
+      whatsappBackendUnavailableRef.current = false;
+      const { data: payload } = await parseJsonSafely(res);
       const items = Array.isArray(payload?.items) ? payload.items : [];
 
-      const pending = items.filter(
+      const pendingMutations = items.filter(
         (item: any) =>
           item?.id &&
-          item?.parsedTx &&
+          item?.dataMutated &&
           !item.syncedToClient &&
-          !importedWhatsAppIdsRef.current.has(item.id)
+          !ackedWhatsAppIdsRef.current.has(item.id)
       );
 
-      if (pending.length === 0) return;
+      if (pendingMutations.length === 0) return;
 
-      const currentAccounts = dataRef.current.accounts;
-      const currentCategories = dataRef.current.categories;
-      const currentRules = dataRef.current.rules;
-      const ackIds: string[] = [];
+      const ackIds = pendingMutations.map((item: any) => {
+        ackedWhatsAppIdsRef.current.add(item.id);
+        return item.id;
+      });
 
-      for (const item of pending) {
-        importedWhatsAppIdsRef.current.add(item.id);
-        const parsed = item.parsedTx;
-        const ruleMatch = findMatchingRule(parsed.title, currentRules);
+      await loadDataFromSupabase(user.email);
+      markDataModified();
 
-        const accountHintLower = (parsed.accountHint || '').toLowerCase();
-        const matchedAccount = accountHintLower
-          ? currentAccounts.find(
-              (a) =>
-                a.name.toLowerCase().includes(accountHintLower) ||
-                (a.bankName || '').toLowerCase().includes(accountHintLower)
-            )
-          : undefined;
-
-        const categoryHintLower = (parsed.categoryHint || '').toLowerCase();
-        const matchedCategory = categoryHintLower
-          ? currentCategories.find((c) => c.name.toLowerCase().includes(categoryHintLower))
-          : undefined;
-
-        let storedDefaultAccountId: string | undefined;
-        try {
-          storedDefaultAccountId =
-            localStorage.getItem(`spendwise_wa_default_acc_${user.email.toLowerCase()}`) ||
-            undefined;
-        } catch {
-          storedDefaultAccountId = undefined;
-        }
-
-        const resolvedDefaultAccount =
-          (parsed.defaultAccountId && currentAccounts.some(a => a.id === parsed.defaultAccountId)
-            ? parsed.defaultAccountId
-            : undefined) ||
-          (storedDefaultAccountId && currentAccounts.some(a => a.id === storedDefaultAccountId)
-            ? storedDefaultAccountId
-            : undefined);
-
-        const resolvedAccountId =
-          matchedAccount?.id ||
-          ruleMatch?.suggestedAccountId ||
-          resolvedDefaultAccount ||
-          currentAccounts[0]?.id ||
-          'acc-default';
-
-        const resolvedCategoryId =
-          matchedCategory?.id ||
-          ruleMatch?.suggestedCategoryId ||
-          currentCategories[0]?.id ||
-          'cat-1';
-
-        const resolvedType =
-          parsed.type || ruleMatch?.suggestedType || 'expense';
-
-        handleSaveExpense({
-          title: parsed.title,
-          amount: parsed.amount,
-          type: resolvedType,
-          accountId: resolvedAccountId,
-          categoryId: resolvedCategoryId,
-          date: parsed.date,
-          notes: parsed.notes,
-        });
-
-        if (ruleMatch?.rule?.id) {
-          handleIncrementRuleMatch(ruleMatch.rule.id);
-        }
-
-        ackIds.push(item.id);
-      }
-
-      if (ackIds.length > 0) {
-        await fetch('/api/v1/whatsapp/messages/ack', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ ids: ackIds }),
-        });
-        window.dispatchEvent(new CustomEvent('spendwise_whatsapp_synced'));
-      }
+      await fetch(buildApiUrl('/api/v1/whatsapp/messages/ack'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ ids: ackIds }),
+      });
+      window.dispatchEvent(new CustomEvent('spendwise_whatsapp_synced'));
     } catch (err) {
       console.warn('WhatsApp inbox sync warning:', err);
     } finally {
       isSyncingWhatsAppRef.current = false;
     }
-  }, [user?.email]);
+  }, [user?.email, loadDataFromSupabase, markDataModified]);
 
   useEffect(() => {
     if (!user?.email) return;
@@ -797,13 +737,15 @@ export default function App() {
     const initAndSync = async () => {
       await registerWhatsAppProfile(user);
       if (!cancelled) {
-        await syncWhatsAppInbox();
+        await syncWhatsAppInbox(false);
       }
     };
     initAndSync();
-    const interval = setInterval(syncWhatsAppInbox, 20000);
+    const interval = setInterval(() => {
+      syncWhatsAppInbox(false);
+    }, 20000);
     const onManualSync = () => {
-      syncWhatsAppInbox();
+      syncWhatsAppInbox(true);
     };
     window.addEventListener('spendwise_whatsapp_sync', onManualSync);
     return () => {

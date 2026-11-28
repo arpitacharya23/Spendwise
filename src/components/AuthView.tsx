@@ -543,7 +543,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
           <p className="mt-5 text-center text-[11px] leading-relaxed text-slate-400">
             By signing up or logging in, you agree to{' '}
             <a
-              href="https://app.arpitacharya.com/privacy.html"
+              href="/privacy.html"
               className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
               target="_blank"
               rel="noreferrer"
@@ -552,7 +552,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
             </a>{' '}
             &{' '}
             <a
-              href="https://app.arpitacharya.com/terms.html"
+              href="/terms.html"
               className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
               target="_blank"
               rel="noreferrer"

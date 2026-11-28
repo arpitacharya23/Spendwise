@@ -6,27 +6,24 @@ import { createServer as createViteServer } from "vite";
 import {
   acknowledgeInboxItems,
   arePhonesMatched,
+  clearUserWhatsAppRuntime,
   getKapsoPublicConfig,
   getProfileBindingForUser,
+  getWhatsAppLinkStatusForUser,
   listInboxItemsForUser,
   processInboundWhatsAppMessages,
   pullRecentInboundFromKapso,
   registerProfilePhoneBinding,
+  requestWhatsAppOtp,
+  runAuthenticatedWhatsAppChat,
   sanitizePhoneNumber,
   sendWhatsAppTextMessage,
+  unlinkWhatsAppForUser,
   verifyIncomingWebhookSignature,
   verifyKapsoConnection,
+  verifyWhatsAppOtpForUser,
 } from "./server/kapsoWhatsApp";
-
-const SUPABASE_URL =
-  process.env.VITE_SUPABASE_URL ||
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  "https://kdjptkhfvzvsevzbcmik.supabase.co";
-
-const SUPABASE_ANON_KEY =
-  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-  "sb_publishable_U073qwpspSpADzBXfs55dA_h842lmUO";
+import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./server/spendwiseSupabase";
 
 const supabaseAuthClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -78,9 +75,93 @@ async function requireAuthenticatedUser(
   }
 }
 
+function parseAllowedOrigin(rawOrigin: string): string | null {
+  try {
+    const parsed = new URL(rawOrigin.trim());
+    const isLocalHttp =
+      parsed.protocol === "http:" &&
+      (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1");
+    if (parsed.protocol !== "https:" && !isLocalHttp) {
+      return null;
+    }
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+const STATIC_ALLOWED_CORS_ORIGINS = new Set<string>([
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+]);
+
+if (typeof process.env.ALLOWED_CORS_ORIGINS === "string") {
+  for (const entry of process.env.ALLOWED_CORS_ORIGINS.split(",")) {
+    const normalized = parseAllowedOrigin(entry);
+    if (normalized) {
+      STATIC_ALLOWED_CORS_ORIGINS.add(normalized);
+    }
+  }
+}
+
+const ARPITACHARYA_DOMAIN_ORIGIN_REGEX =
+  /^https:\/\/(?:[a-z0-9-]+\.)*arpitacharya\.com$/i;
+
+const AI_STUDIO_PREVIEW_ORIGIN_REGEX =
+  /^https:\/\/ais-(?:dev|pre)-[a-z0-9-]+-\d+\.[a-z0-9-]+\.run\.app$/i;
+
+function isTrustedCorsOrigin(originHeader: string, req: express.Request): string | null {
+  const normalized = parseAllowedOrigin(originHeader);
+  if (!normalized) return null;
+  if (STATIC_ALLOWED_CORS_ORIGINS.has(normalized)) return normalized;
+  if (ARPITACHARYA_DOMAIN_ORIGIN_REGEX.test(normalized)) return normalized;
+  if (AI_STUDIO_PREVIEW_ORIGIN_REGEX.test(normalized)) return normalized;
+
+  const forwardedHost = req.headers["x-forwarded-host"];
+  const hostHeader =
+    (typeof forwardedHost === "string" ? forwardedHost.split(",")[0].trim() : "") ||
+    (typeof req.headers.host === "string" ? req.headers.host.trim() : "");
+  if (hostHeader) {
+    const parsedOrigin = new URL(normalized);
+    if (parsedOrigin.host.toLowerCase() === hostHeader.toLowerCase()) {
+      return normalized;
+    }
+  }
+
+  return null;
+}
+
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  app.set("trust proxy", 1);
+  const PORT = Number(process.env.PORT) || 3000;
+
+  app.use("/api", (req, res, next) => {
+    const originHeader = req.headers.origin;
+    if (typeof originHeader === "string" && originHeader.trim()) {
+      const trustedOrigin = isTrustedCorsOrigin(originHeader, req);
+      if (trustedOrigin) {
+        res.setHeader("Vary", "Origin");
+        res.setHeader("Access-Control-Allow-Origin", trustedOrigin);
+        res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+        res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-API-Key");
+        res.setHeader("Access-Control-Max-Age", "86400");
+        if (req.method === "OPTIONS") {
+          return res.status(204).end();
+        }
+      } else if (req.method === "OPTIONS") {
+        return res.status(403).json({
+          success: false,
+          error: "Origin not allowed by CORS policy.",
+        });
+      }
+    } else if (req.method === "OPTIONS") {
+      return res.status(204).end();
+    }
+    return next();
+  });
 
   app.use(
     express.json({
@@ -97,11 +178,11 @@ async function startServer() {
   });
 
   app.get("/api/v1/health", (req, res) => {
-    res.json({ status: "ok", version: "1.2.0", timestamp: new Date().toISOString() });
+    res.json({ status: "ok", version: "2.0.0", timestamp: new Date().toISOString() });
   });
 
   // ---------------------------------------------------------------------------
-  // Kapso WhatsApp Integration Routes
+  // Kapso WhatsApp AI Financial Assistant Routes
   // ---------------------------------------------------------------------------
 
   // Publicly exposed webhook receiver for Kapso WhatsApp events (signature-verified)
@@ -133,7 +214,7 @@ async function startServer() {
         event: eventHeader,
         processedCount: processed.length,
         matchedProfiles: processed.filter((p) => Boolean(p.ownerEmail)).length,
-        transactionsParsed: processed.filter((p) => Boolean(p.parsedTx && p.ownerEmail)).length,
+        dataMutations: processed.filter((p) => Boolean(p.dataMutated && p.ownerEmail)).length,
       });
     } catch (err) {
       console.error("Kapso webhook processing error:", err);
@@ -144,7 +225,7 @@ async function startServer() {
     }
   });
 
-  // Attach/sync the signed-in user's Profile phone number & default account for WhatsApp routing
+  // Sync profile phone metadata on login/profile save (preserves OTP verification for unchanged phone)
   app.post(
     "/api/v1/whatsapp/register-profile",
     requireAuthenticatedUser,
@@ -153,8 +234,6 @@ async function startServer() {
       const bodyPhone = typeof req.body?.phone === "string" ? req.body.phone : undefined;
       const bodyCountryCode =
         typeof req.body?.countryCode === "string" ? req.body.countryCode : undefined;
-      const defaultAccountId =
-        typeof req.body?.defaultAccountId === "string" ? req.body.defaultAccountId : undefined;
 
       let dbPhone: string | null = null;
       let dbCountryCode: string | null = null;
@@ -187,14 +266,90 @@ async function startServer() {
         email: userEmail,
         phone: effectivePhone,
         countryCode: effectiveCountryCode,
-        defaultAccountId,
       });
 
       return res.json({
         success: true,
         registered: Boolean(binding),
+        verified: Boolean(binding?.verified),
         binding,
+        linkStatus: getWhatsAppLinkStatusForUser(userEmail),
         reconciledCount,
+      });
+    }
+  );
+
+  // Request 6-digit OTP to link and verify a WhatsApp number with the signed-in account
+  app.post(
+    "/api/v1/whatsapp/link/request-otp",
+    requireAuthenticatedUser,
+    async (req: AuthenticatedRequest, res) => {
+      const phone = typeof req.body?.phone === "string" ? req.body.phone : "";
+      const countryCode =
+        typeof req.body?.countryCode === "string" ? req.body.countryCode : "+91";
+
+      const result = await requestWhatsAppOtp(
+        { userEmail: req.userEmail!, userToken: req.userToken },
+        { phone, countryCode }
+      );
+
+      if (!result.success) {
+        return res.status(400).json({
+          success: false,
+          error: result.error || "Unable to initiate WhatsApp verification.",
+        });
+      }
+
+      return res.json({
+        success: true,
+        ...result,
+        linkStatus: getWhatsAppLinkStatusForUser(req.userEmail!),
+      });
+    }
+  );
+
+  // Verify 6-digit OTP code from SpendWise Settings UI
+  app.post(
+    "/api/v1/whatsapp/link/verify-otp",
+    requireAuthenticatedUser,
+    async (req: AuthenticatedRequest, res) => {
+      const code = typeof req.body?.code === "string" ? req.body.code : "";
+      const result = await verifyWhatsAppOtpForUser(
+        { userEmail: req.userEmail!, userToken: req.userToken },
+        code
+      );
+
+      if (!result.verified) {
+        return res.status(400).json({
+          success: false,
+          error: result.error || "Verification failed.",
+        });
+      }
+
+      return res.json({
+        success: true,
+        verified: true,
+        binding: result.binding,
+        linkStatus: getWhatsAppLinkStatusForUser(req.userEmail!),
+      });
+    }
+  );
+
+  // Unlink & revoke WhatsApp access for the signed-in user
+  app.post(
+    "/api/v1/whatsapp/unlink",
+    requireAuthenticatedUser,
+    async (req: AuthenticatedRequest, res) => {
+      const result = await unlinkWhatsAppForUser({
+        userEmail: req.userEmail!,
+        userToken: req.userToken,
+      });
+      clearUserWhatsAppRuntime(req.userEmail!);
+
+      return res.json({
+        success: true,
+        ...result,
+        linkStatus: getWhatsAppLinkStatusForUser(req.userEmail!),
       });
     }
   );
@@ -203,13 +358,14 @@ async function startServer() {
   app.get("/api/v1/whatsapp/status", requireAuthenticatedUser, (req: AuthenticatedRequest, res) => {
     const config = getKapsoPublicConfig();
     const userItems = listInboxItemsForUser(req.userEmail!);
-    const pendingSyncCount = userItems.filter((i) => i.parsedTx && !i.syncedToClient).length;
-    const profileBinding = getProfileBindingForUser(req.userEmail!);
+    const pendingSyncCount = userItems.filter((i) => i.dataMutated && !i.syncedToClient).length;
+    const linkStatus = getWhatsAppLinkStatusForUser(req.userEmail!);
 
     return res.json({
       success: true,
       config,
-      profileBinding,
+      profileBinding: linkStatus.binding,
+      linkStatus,
       pendingSyncCount,
       totalMessages: userItems.length,
     });
@@ -261,12 +417,15 @@ async function startServer() {
   app.get("/api/v1/whatsapp/messages", requireAuthenticatedUser, async (req: AuthenticatedRequest, res) => {
     const shouldPull = req.query.pull === "true";
     let pulledCount = 0;
-    let profilePhoneRequired = !getProfileBindingForUser(req.userEmail!);
+    const currentBinding = getProfileBindingForUser(req.userEmail!);
+    let profilePhoneRequired = !currentBinding;
+    let verificationRequired = !currentBinding?.verified;
 
     if (shouldPull) {
       const pullRes = await pullRecentInboundFromKapso(req.userEmail!);
       pulledCount = pullRes.addedCount;
       profilePhoneRequired = pullRes.profilePhoneRequired;
+      verificationRequired = pullRes.verificationRequired;
     }
 
     const items = listInboxItemsForUser(req.userEmail!);
@@ -274,13 +433,15 @@ async function startServer() {
       success: true,
       pulledCount,
       profilePhoneRequired,
+      verificationRequired,
       profileBinding: getProfileBindingForUser(req.userEmail!),
+      linkStatus: getWhatsAppLinkStatusForUser(req.userEmail!),
       items,
-      pendingSyncCount: items.filter((i) => i.parsedTx && !i.syncedToClient).length,
+      pendingSyncCount: items.filter((i) => i.dataMutated && !i.syncedToClient).length,
     });
   });
 
-  // Acknowledge WhatsApp transactions once imported into SpendWise ledger
+  // Acknowledge WhatsApp mutations once SpendWise client refreshes Supabase data
   app.post("/api/v1/whatsapp/messages/ack", requireAuthenticatedUser, (req: AuthenticatedRequest, res) => {
     const ids = Array.isArray(req.body?.ids)
       ? req.body.ids.filter((id: unknown): id is string => typeof id === "string")
@@ -293,7 +454,46 @@ async function startServer() {
     });
   });
 
-  // Authenticated inbound simulator for testing natural-language WhatsApp expense parsing
+  // Authenticated conversational AI assistant endpoint (enforces Supabase RLS via userToken)
+  app.post("/api/v1/whatsapp/chat", requireAuthenticatedUser, async (req: AuthenticatedRequest, res) => {
+    const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+    const contactName = typeof req.body?.contactName === "string" ? req.body.contactName : undefined;
+    if (!text || text.length > 1500) {
+      return res.status(400).json({
+        success: false,
+        error: "Valid 'text' message (1-1500 chars) is required.",
+      });
+    }
+
+    try {
+      const result = await runAuthenticatedWhatsAppChat({
+        userEmail: req.userEmail!,
+        userToken: req.userToken!,
+        text,
+        contactName,
+      });
+
+      const status = result.errorCode === "GEMINI_API_KEY_MISSING" ? 503 : 200;
+      return res.status(status).json({
+        success: status === 200,
+        ...result,
+      });
+    } catch (err) {
+      const error = err as Error & { statusCode?: number };
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        error: error.message || "Failed to process WhatsApp AI assistant message.",
+      });
+    }
+  });
+
+  // Reset conversational context for the signed-in user
+  app.post("/api/v1/whatsapp/context/clear", requireAuthenticatedUser, (req: AuthenticatedRequest, res) => {
+    clearUserWhatsAppRuntime(req.userEmail!);
+    return res.json({ success: true });
+  });
+
+  // Authenticated inbound simulator for testing WhatsApp messages & OTP linking
   app.post("/api/v1/whatsapp/simulate-inbound", requireAuthenticatedUser, async (req: AuthenticatedRequest, res) => {
     const { from, text, contactName } = req.body || {};
     if (typeof text !== "string" || !text.trim() || text.trim().length > 1000) {
@@ -303,11 +503,20 @@ async function startServer() {
       });
     }
 
-    const binding = getProfileBindingForUser(req.userEmail!);
+    const linkStatus = getWhatsAppLinkStatusForUser(req.userEmail!);
+    const binding = linkStatus.binding;
     if (!binding) {
       return res.status(400).json({
         success: false,
-        error: "Attach a mobile number to your SpendWise profile before logging WhatsApp transactions.",
+        error: "Attach and verify a mobile number with your SpendWise account first.",
+      });
+    }
+
+    const isOtpCommand = /^(?:link|verify)\s+\d{6}$/i.test(text.trim());
+    if (!binding.verified && !isOtpCommand) {
+      return res.status(403).json({
+        success: false,
+        error: "Your WhatsApp number is not verified yet. Complete OTP verification first.",
       });
     }
 
@@ -315,7 +524,7 @@ async function startServer() {
     if (sanitizedFrom && !arePhonesMatched(sanitizedFrom, binding.phoneDigits)) {
       return res.status(400).json({
         success: false,
-        error: `Sender number must match your attached profile number (${binding.displayPhone}).`,
+        error: `Sender number must match your linked number (${binding.displayPhone}).`,
       });
     }
 
@@ -325,8 +534,8 @@ async function startServer() {
         contactName: typeof contactName === "string" ? contactName.slice(0, 60) : "SpendWise Profile",
         text: text.trim(),
         ownerEmail: req.userEmail!,
+        userToken: req.userToken!,
         matchedProfilePhone: binding.displayPhone,
-        defaultAccountId: binding.defaultAccountId,
       },
       sendAutoReply: false,
     });
@@ -334,6 +543,7 @@ async function startServer() {
     return res.status(201).json({
       success: true,
       item: processed[0] || null,
+      linkStatus: getWhatsAppLinkStatusForUser(req.userEmail!),
     });
   });
 
@@ -517,6 +727,14 @@ async function startServer() {
           },
         },
       },
+    });
+  });
+
+  // JSON 404 fallback for unmatched API routes (never fall through to SPA HTML)
+  app.use("/api", (_req, res) => {
+    return res.status(404).json({
+      success: false,
+      error: "API endpoint not found.",
     });
   });
 
